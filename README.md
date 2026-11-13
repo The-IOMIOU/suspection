@@ -14,7 +14,8 @@ It's a UE4SS Lua mod and it works in Steam co-op: the host runs the logic, and e
 | Win modes | `timer`: survive `SurviveSeconds`. `kills`: kill `KillTarget` SWAT. Wiping out every SWAT also wins. |
 | Tougher suspects | Damage you take is divided by `SuspectHealthMult` (default 2.5), using per-limb `LimbDamageMultiplier`. |
 | Stun resistance | Flashbang, stinger and gas stuns get cut short after `StunMaxSeconds`. |
-| More SWAT (on `main`, after v0.1) | At the breach the squad is topped up to `SwatBase + SwatPerPlayer * players`, then `ReinforceWaves` waves of `ReinforceSize` arrive every `ReinforceEvery` seconds. Known issue: spawned SWAT are armed but stay passive. |
+| More SWAT (on `main`, after v0.1) | At the breach the squad is topped up to `SwatBase + SwatPerPlayer * players`, then `ReinforceWaves` waves of `ReinforceSize` arrive every `ReinforceEvery` seconds. |
+| Enemies that shoot (on `main`) | `EnemyMode = "hunters"` (default): hostile AI from the map's own spawners is dropped 25-45 m from a player and attacks. Your AI squad is removed and you start far from the entry point. They still look like suspects, not SWAT. |
 | Chat HUD | Countdown and status in the in-game chat. The host presses **F7** to toggle the mode and **F8** for status. |
 
 ## Install (every player)

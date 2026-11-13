@@ -18,7 +18,11 @@ Legend: [x] done · [ ] todo · (hint) = where to start, see ENGINE_NOTES.md
 - [x] Waves / reinforcements: `ReinforceEvery`, `ReinforceSize`, `ReinforceWaves`; a wiped squad is replaced at once (v0.2)
 - [x] `SwatIntelEvery`: all SWAT get the players as known enemies every N seconds; spawned SWAT then track them (v0.2)
 - [x] `SpawnAway`: players are moved to the reachable point farthest from the squad during setup (v0.2)
-- [ ] **SWAT still do not move or shoot.** They track the player but stand still and deal no damage. The map's squad treats the player as its leader. Fix this first; see HANDOFF "v0.2 session, part 2".
+- [x] `EnemyMode = "hunters"` (default): enemies that really shoot. Suspect AI from the map's own `AISpawn` actors, dropped near the players; AI squad removed; players keep their team (v0.2)
+- [ ] Hunters look like suspects, not SWAT. Give them SWAT bodies/kit, or find another way to make them read as SWAT.
+- [ ] Hunters are teleported in (`HunterDropMin/Max`), they do not walk in from the entry point. Make them path to the players instead.
+- [ ] Balance: an idle player died 4 s after the breach with drops at 15-30 m. Defaults are now 25-45 m, untested.
+- [ ] (`EnemyMode = "swat"` only) **SWAT still do not move or shoot.** They track the player but stand still and deal no damage. The map's squad treats the player as its leader. Fix this first; see HANDOFF "v0.2 session, part 2".
 - [ ] Make sure SWAT actually breach toward players (stack-up / breach activities on doors near players)
 - [ ] Settings: SWAT accuracy, damage dealt to suspects, damage dealt to SWAT (separate sliders)
 - [ ] Mode: "survive N SWAT kills" = the SWAT ticket pool

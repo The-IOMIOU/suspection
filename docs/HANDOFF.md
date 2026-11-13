@@ -106,3 +106,13 @@ Ideas, untested:
 - Only `Suspect_Common` and `Civilian_Scared` archetypes are loaded on a bare `open` map; there is no SWAT archetype object.
 
 Next idea, untested: in a full mission started from the menu the map has real `AISpawn` actors. Move one (`K2_SetActorLocation`) and call `DoSpawn()` to get a fully initialised suspect, then compare its fields with a hand-spawned one to find what is missing. Fully working hostile AI in this game is suspect AI against SWAT-team players, so the mode may have to keep players on the SWAT team internally and present suspect AI as the "SWAT" (look and kit swapped).
+
+## v0.2 session, part 4: enemies that shoot (2026-11-13) — READ THIS FIRST
+**The working design is `EnemyMode = "hunters"` (default).** The team swap (`EnemyMode = "swat"`) is kept but its SWAT never fight.
+- Players keep their normal SWAT team. The map's AI squad is destroyed during setup (`dropSquad`).
+- Enemies are suspect AI created by the map's own `AISpawn` actors: set `bEnabled`, `SpawnChance = 1`, call `DoSpawn()`, read `SpawnedCharacter`. These are fully initialised and do not crash. Civilians a spawner produces are destroyed. The map's own suspects count as enemies too.
+- They patrol where they spawn and ignore `MoveToActor` (returns 2, then their own behaviour takes over). So `dropNear` teleports each one to a navmesh point `HunterDropMin..HunterDropMax` cm from a random living player; `swatIntel` re-drops any that are further than 1.5 x `HunterDropMax`.
+- Verified on `RoN_Gas_BarricadedSuspects_Core`, idle player: squad removed, player moved 112 m, 4 hunters spawned at the breach, player dead 4 s later, "SWAT WINS" posted. No crash. Before that, a 150 s round without the drop: 8 → 14 enemies, three waves, timer win, no crash, no damage (they never came closer than 18 m).
+- `open <map>_Core` has no AI. **`open /Game/ReadyOrNot/Level/RoN_Gas/Levels/RoN_Gas_BarricadedSuspects_Core` is a full mission** (66 `AISpawn`, suspects, civilians) and is the map to test on. A bare `_Core` map has no spawners, so hunters mode spawns nothing there.
+- Chat text still says "SWAT" and "SUSPECTS"; with hunters mode the wording no longer matches what the player sees.
+- Not tested: co-op, other maps, kills win mode in hunters mode, the 25-45 m default drop distance.

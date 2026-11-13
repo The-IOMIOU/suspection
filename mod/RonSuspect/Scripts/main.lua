@@ -1,7 +1,7 @@
 -- SUSPECT MODE v0.2 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
-local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true}
+local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500}
 local okc, cfg = pcall(dofile, dir.."config.lua"); if not okc or type(cfg)~="table" then cfg = {Enabled=true,PrepSeconds=60,WinMode="timer",SurviveSeconds=600,KillTarget=4,SuspectHealthMult=2.5,StunResist=true,StunMaxSeconds=0.75,AnnounceEvery=60,SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,ToggleKey="F7",StatusKey="F8"} end
 for k,v in pairs(DEF) do if cfg[k]==nil then cfg[k]=v end end  -- old config.lua files keep working
 local TT_SUSPECT, TT_SWAT = 3, 1
@@ -40,8 +40,16 @@ end
 
 -- The map keeps spare "trailer" SWAT parked far below the level (z = -10000); they are not part of the fight.
 local function swatChars() local r={} for _,c in ipairs(list("SWATCharacter")) do if valid(c) and c:K2_GetActorLocation().Z > -5000 then r[#r+1]=c end end return r end
-local function swatAlive() local n=0 for _,c in ipairs(swatChars()) do if not c:IsHealthDepleted() then n=n+1 end end return n end
-local function swatDead() local n=0 for _,c in ipairs(swatChars()) do if c:IsHealthDepleted() then n=n+1 end end return n end
+-- EnemyMode "hunters": the game's SWAT AI never fights players, so the enemy is the game's own hostile AI
+-- (suspect AI from the map's AISpawn actors), which attacks SWAT-team players by itself. Players keep
+-- their team in this mode and the AI squad is removed. EnemyMode "swat" is the old team-swap mode.
+local function hunters() return cfg.EnemyMode ~= "swat" end
+local function enemies()
+  if not hunters() then return swatChars() end
+  local r={} for _,c in ipairs(list("SuspectCharacter")) do if valid(c) then r[#r+1]=c end end return r
+end
+local function swatAlive() local n=0 for _,c in ipairs(enemies()) do if not c:IsHealthDepleted() then n=n+1 end end return n end
+local function swatDead() local n=0 for _,c in ipairs(enemies()) do if c:IsHealthDepleted() then n=n+1 end end return n end
 
 local function players() return #playerChars() end
 local function playersAlive() local n=0 for _,c in ipairs(playerChars()) do if not c:IsHealthDepleted() then n=n+1 end end return n end
@@ -113,13 +121,41 @@ local function spawnSwat(n)
   return made
 end
 
+-- Hunters patrol where they spawn and do not walk to the players on their own, so they are dropped
+-- on the navmesh HunterDropMin..HunterDropMax cm from a random living player; from there they fight natively.
+local function nearestPlayerDist(c)
+  local l, best = c:K2_GetActorLocation(), 1e12
+  for _,pl in ipairs(playerChars()) do if not pl:IsHealthDepleted() then local o = pl:K2_GetActorLocation()
+    local d = (l.X-o.X)^2+(l.Y-o.Y)^2 if d < best then best = d end end end
+  return math.sqrt(best)
+end
+local function dropNear(c)
+  local N = StaticFindObject("/Script/NavigationSystem.Default__NavigationSystemV1"); if not valid(N) then return false end
+  local alive = {} for _,pl in ipairs(playerChars()) do if not pl:IsHealthDepleted() then alive[#alive+1] = pl end end
+  if #alive == 0 then return false end
+  local pl = alive[math.random(1,#alive)]; local o = pl:K2_GetActorLocation()
+  local best, bestD = nil, -1
+  for _=1,12 do local out = {}
+    if N:K2_GetRandomReachablePointInRadius(pl,{X=o.X,Y=o.Y,Z=o.Z},out,cfg.HunterDropMax,nil,nil) then
+      local d = math.sqrt((out.X-o.X)^2+(out.Y-o.Y)^2)
+      if d > bestD then bestD = d best = out end
+      if d >= cfg.HunterDropMin then break end
+    end
+  end
+  if not best then return false end
+  local ok = c:K2_TeleportTo({X=best.X,Y=best.Y,Z=best.Z+90},{Pitch=0,Yaw=math.random(0,359),Roll=0})
+  pcall(function() c.Controller.TargetingComponent:AddKnownEnemy(pl,true) end)
+  return ok
+end
+
 -- Spawned SWAT sense players but never act on it, and the map's squad only reacts to what it sees.
 -- "Intel": put every living player on each operator's known-enemy list so the whole element hunts.
 local function swatIntel()
   local n = 0
-  for _,c in ipairs(swatChars()) do if not c:IsHealthDepleted() then pcall(function()
+  for _,c in ipairs(enemies()) do if not c:IsHealthDepleted() then pcall(function()
     local tc = c.Controller.TargetingComponent
     for _,pl in ipairs(playerChars()) do if not pl:IsHealthDepleted() then tc:AddKnownEnemy(pl,true) n = n + 1 end end
+    if hunters() and nearestPlayerDist(c) > cfg.HunterDropMax * 1.5 then dropNear(c) end  -- bring stragglers back into the fight
   end) end end
   return n
 end
@@ -129,9 +165,10 @@ end
 local function moveAway()
   S.moved = S.moved or {}
   local N = StaticFindObject("/Script/NavigationSystem.Default__NavigationSystemV1"); if not valid(N) then return end
-  local sw; for _,c in ipairs(swatChars()) do if not c:IsHealthDepleted() then sw = c break end end
-  if not sw then return end  -- the squad spawns a moment after the players
-  local a = sw:K2_GetActorLocation()
+  local a = S.anchor
+  if not a then local sw; for _,c in ipairs(swatChars()) do if not c:IsHealthDepleted() then sw = c break end end
+    if not sw then return end  -- the squad spawns a moment after the players
+    a = sw:K2_GetActorLocation() end
   for _,pl in ipairs(playerChars()) do local key = pl:GetFullName()
     if not S.moved[key] then
       local best, bestD = nil, -1
@@ -147,12 +184,47 @@ local function moveAway()
   end
 end
 
+-- Hunters come from the map's own AISpawn actors (fully set-up AI; hand-spawned suspects crash the game).
+-- An unused spawner is fired where it stands and the hunter is dropped near a player; civilians it produces are removed.
+local function spawnHunters(n)
+  if n <= 0 then return 0 end
+  local N = StaticFindObject("/Script/NavigationSystem.Default__NavigationSystemV1")
+  local ctx = FindFirstOf("ReadyOrNotGameMode"); local a = swatAnchor()
+  local pool = {}
+  for _,s in ipairs(list("AISpawn")) do if valid(s) then local c = s.SpawnedCharacter
+    if not valid(c) or c:IsHealthDepleted() then pool[#pool+1] = s end end end
+  local made, tries = 0, 0
+  while made < n and #pool > 0 and tries < n * 6 do tries = tries + 1
+    local s = table.remove(pool, math.random(1,#pool))
+    pcall(function()
+      s.bEnabled = true; s.SpawnChance = 1.0; s:DoSpawn()
+    end)
+    local c = s.SpawnedCharacter
+    if valid(c) and not c:IsHealthDepleted() then
+      if c:GetClass():GetFName():ToString():find("Suspect") then made = made + 1; pcall(dropNear, c)
+      else pcall(function() c:K2_DestroyActor() end) end
+    end
+  end
+  log("spawned "..made.."/"..n.." hunters ("..#pool.." spawners left)")
+  return made
+end
+
+-- Hunters mode: remember where the AI squad stood (the entry point), then remove it so it cannot help the players.
+local function dropSquad()
+  if S.squadGone then return end
+  local all = list("SWATCharacter"); if #all == 0 then return end
+  swatAnchor()
+  for _,c in ipairs(all) do if valid(c) then pcall(function() c:K2_DestroyActor() end) end end
+  S.squadGone = true; log("AI squad removed")
+end
+
 local function swatTarget() return math.min(cfg.SwatMax, cfg.SwatBase + cfg.SwatPerPlayer * players()) end
 
 local function makeSuspects(prep)
-  for _,ps in ipairs(list("ReadyOrNotPlayerState")) do if valid(ps) and ps.Team ~= TT_SUSPECT then ps.Team = TT_SUSPECT end end
+  local swap = not hunters()
+  if swap then for _,ps in ipairs(list("ReadyOrNotPlayerState")) do if valid(ps) and ps.Team ~= TT_SUSPECT then ps.Team = TT_SUSPECT end end end
   for _,c in ipairs(playerChars()) do if valid(c) then
-    if c:GetTeam() ~= TT_SUSPECT then pcall(function() c.DefaultTeam = TT_SUSPECT c:HandleTeamChanged(TT_SUSPECT) end) end
+    if swap and c:GetTeam() ~= TT_SUSPECT then pcall(function() c.DefaultTeam = TT_SUSPECT c:HandleTeamChanged(TT_SUSPECT) end) end
     c.bGodMode = prep and true or false
     local key = c:GetFullName()
     if not S.limbs[key] then  -- tougher suspects: scale per-limb damage multipliers once per character
@@ -169,7 +241,7 @@ local function makeSuspects(prep)
       end)
     end
   end end
-  for _,ctl in ipairs(list("SWATController")) do if valid(ctl) then ctl.bDisableSensePerception = prep and true or false end end
+  for _,c in ipairs(enemies()) do pcall(function() c.Controller.bDisableSensePerception = prep and true or false end) end
 end
 
 local function fmt(s) s=math.max(0,math.floor(s)) return string.format("%d:%02d", s//60, s%60) end
@@ -177,7 +249,7 @@ local function fmt(s) s=math.max(0,math.floor(s)) return string.format("%d:%02d"
 local function win(reason)
   S.done = true; S.phase = "won"
   chat("SUSPECTS WIN - "..reason.."  (remaining SWAT stand down)")
-  for _,c in ipairs(swatChars()) do if not c:IsHealthDepleted() then pcall(function() c:Kill() end) end end
+  for _,c in ipairs(enemies()) do if not c:IsHealthDepleted() then pcall(function() c:Kill() end) end end
 end
 
 local function lose()
@@ -190,17 +262,19 @@ local function tick()
   local map = inMission()
   if not map then S.map=nil S.phase="idle" return end
   if map ~= S.map then -- new mission
-    S.map=map S.phase="prep" S.done=false S.limbs={} S.anchor=nil S.waves=0 S.moved={} S.t0=os.time() S.prepEnd=S.t0+cfg.PrepSeconds S.lastAnn=0
+    S.map=map S.phase="prep" S.done=false S.limbs={} S.anchor=nil S.waves=0 S.moved={} S.squadGone=false S.t0=os.time() S.prepEnd=S.t0+cfg.PrepSeconds S.lastAnn=0
     chat(("You are the SUSPECTS. %ds to set up - SWAT AI hunts you after that. Goal: %s"):format(cfg.PrepSeconds,
       cfg.WinMode=="kills" and ("kill "..cfg.KillTarget.." SWAT") or ("survive "..fmt(cfg.SurviveSeconds))))
   end
   local now = os.time()
   if S.phase=="prep" and now >= S.prepEnd then S.phase="live" S.liveStart=now S.lastAnn=now S.lastWave=now S.lastIntel=now
-    spawnSwat(swatTarget() - swatAlive())  -- top the map's squad up to SwatBase + SwatPerPlayer * players
+    local need = swatTarget() - swatAlive()
+    if hunters() then spawnHunters(need) else spawnSwat(need) end  -- top the map's squad up to SwatBase + SwatPerPlayer * players
     if cfg.SwatIntelEvery > 0 then swatIntel() end
     chat("SWAT IS BREACHING! "..swatAlive().." operators inbound.") end
   if S.done then return end
   if S.phase=="prep" and cfg.SpawnAway then moveAway() end
+  if hunters() then dropSquad() end
   makeSuspects(S.phase=="prep")
   if S.phase=="live" then
     if playersAlive() == 0 then return lose() end
@@ -210,12 +284,13 @@ local function tick()
     local alive, wavesLeft = swatAlive(), cfg.ReinforceEvery > 0 and S.waves < cfg.ReinforceWaves
     if wavesLeft and (alive==0 or now - S.lastWave >= cfg.ReinforceEvery) then  -- reinforcements: on a timer, or at once after a wipe
       S.lastWave = now; S.waves = S.waves + 1
-      local made = spawnSwat(math.min(cfg.ReinforceSize, cfg.SwatMax - alive))
+      local add = math.min(cfg.ReinforceSize, cfg.SwatMax - alive)
+      local made = hunters() and spawnHunters(add) or spawnSwat(add)
       if cfg.SwatIntelEvery > 0 then swatIntel() end
       if made > 0 then chat(("SWAT REINFORCEMENTS: +%d (wave %d/%d)"):format(made, S.waves, cfg.ReinforceWaves)) end
       alive = swatAlive()
     end
-    if #swatChars()>0 and alive==0 and not (cfg.ReinforceEvery > 0 and S.waves < cfg.ReinforceWaves) then return win("entire SWAT element neutralised") end
+    if #enemies()>0 and alive==0 and not (cfg.ReinforceEvery > 0 and S.waves < cfg.ReinforceWaves) then return win("entire SWAT element neutralised") end
     if now - S.lastAnn >= cfg.AnnounceEvery then S.lastAnn=now
       chat(cfg.WinMode=="kills" and ("SWAT down: "..swatDead().."/"..cfg.KillTarget) or ("Hold out: "..fmt(cfg.SurviveSeconds-(now-S.liveStart)).." left, SWAT alive "..swatAlive())) end
   elseif S.phase=="prep" and now - S.lastAnn >= 15 then S.lastAnn=now chat("Setup time: "..fmt(S.prepEnd-now)) end
