@@ -1,0 +1,6 @@
+dist/
+build/
+dump/
+*.png
+out.txt
+cmd.lua
