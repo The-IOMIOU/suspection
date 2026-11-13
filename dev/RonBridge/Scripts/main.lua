@@ -1,5 +1,5 @@
 -- dev-only REPL bridge: write Lua to cmd.lua, result lands in out.txt
-local dir = "E:/MixUps/ronsuspect/bridge/"
+local dir = ((os.getenv("RON_BRIDGE") or (os.getenv("LOCALAPPDATA").."/Temp/ronbridge")):gsub("\\","/")).."/"
 _G.LOG = {}
 function _G.P(...) local t={} for i=1,select('#',...) do t[#t+1]=tostring(select(i,...)) end LOG[#LOG+1]=table.concat(t," ") end
 LoopAsync(400, function()

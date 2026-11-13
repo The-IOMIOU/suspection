@@ -14,8 +14,9 @@ Legend: [x] done · [ ] todo · (hint) = where to start, see ENGINE_NOTES.md
 - [x] Chat HUD, F7 toggle, F8 status, installer zip for friends
 
 ## M1: Enough SWAT, always (next; it blocks co-op without an AI squad)
-- [ ] Spawn N SWAT AI (`SwatCount` slider; scales with player count, e.g. 2 players vs 10 SWAT) at the map's SWAT start (hint: `AISpawn.DoSpawn`, `ArchetypeOverride`, or SpawnActor of `CyberneticsSwat_V2_C` + `BP_SWAT_GOAP_Controller_C`; spawn tags `SWATRedStartTag`)
-- [ ] Waves / reinforcements (`bUseReinforcements`, `Reinforcements_TimeRemaining`)
+- [x] Spawn N SWAT AI at the breach: `SwatBase + SwatPerPlayer * players`, capped by `SwatMax`, next to the map's squad, each with armour, helmet, pistol and a random primary (v0.2)
+- [x] Waves / reinforcements: `ReinforceEvery`, `ReinforceSize`, `ReinforceWaves`; a wiped squad is replaced at once (v0.2)
+- [ ] **Spawned SWAT are passive**: armed and hostile on paper (`IsCharacterEnemy` true) but they never track a target or leave the spawn. The map's 4 do track. Fix this first.
 - [ ] Make sure SWAT actually breach toward players (stack-up / breach activities on doors near players)
 - [ ] Settings: SWAT accuracy, damage dealt to suspects, damage dealt to SWAT (separate sliders)
 - [ ] Mode: "survive N SWAT kills" = the SWAT ticket pool

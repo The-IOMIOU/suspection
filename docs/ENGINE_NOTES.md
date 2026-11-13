@@ -29,3 +29,13 @@ RoN_Farm_Core, RoN_Hospital_Core, RoN_Importer_Core, RoN_Meth_Core, RoN_Penthous
 RoN_Campus_Core, RoN_Sins_Core, RoN_Station_Core, RoN_Streamer_Core, RoN_Valley_Core, RoN_TutorialV3_Core, plus `*_BarricadedSuspects_Core`
 variants and DLC (RoN_Station_DLC01_Core, RoN_Dorms_Core, RoN_Lawmaker_Core, RoN_Narcos_Core). Full paths: `dev/recon/maps2.lua`.
 Example: `/Game/ReadyOrNot/Level/RoN_Gas/Levels/RoN_Gas_Core`.
+
+## Spawning AI (found 2026-11-13)
+- `AIBlueprintHelperLibrary:SpawnAIFromClass(ctx, class, nil, Location, Rotation, true, nil)` with `/Game/Blueprints/Characters/AI/CyberneticsSwat_V2.CyberneticsSwat_V2_C` gives a pawn with a `BP_SWAT_GOAP_Controller_C`, team 0 and an **empty inventory**. Set `DefaultTeam` + `HandleTeamChanged(1)`.
+- Items: `GameplayStatics:BeginDeferredActorSpawnFromClass(pawn, itemClass, Transform, 1, pawn, 0)` → `FinishSpawningActor` → `InventoryComp:AddInventoryItem(item)` → `InventoryComp:EquipItemOfClass(class, true)`.
+- Map SWAT carry: `ArmorRevised/Armor_Light_V2`, `ArmorRevised/Helmets/BP_Helmet_Standard`, `WeaponsRevised/Secondary_G19_V2`, a primary (`Primary_MCX`, `Primary_BRN180`, `Primary_SPC9`, `Primary_Superbnova`), flashbangs, stinger, C2, door jam, zipcuffs, multitool (all under `/Game/Blueprints/Items/`).
+- Navmesh point: `NavigationSystemV1:K2_GetRandomReachablePointInRadius(ctx, Origin, outTable, Radius, nil, nil)` fills `outTable.X/Y/Z`.
+- `ReadyOrNotPlayerController:SpawnRandomAI(Count)` spawned a `CyberneticsSuspect_V2_C` on team 3 (useful for AI suspect helpers). Also `SpawnAI(TableName, Count)` and `SpawnAIAtLocation(TableName, Location, MoveLocation)`; table names unknown.
+- Map SWAT have `Archetype` nil and no `AISpawn` actor; there are no `PlayerStart` actors on RoN_Gas_Core.
+- `SavedLoadout` is a plain struct of item classes (`Primary`, `Secondary`, `Armor`, `Helmet`, ...). `BpGameplayHelperLib:EquipLoadoutOnPlayer(Loadout, Character, LoadoutEquipOptions)` exists but is untested with a Lua table.
+- Player: `GameMode:SpawnPlayerCharacter(pc, BasePlayer_C class, Transform, true)` works; `RespawnPlayer(pc, false)` did nothing from the lobby.

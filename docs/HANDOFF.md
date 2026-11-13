@@ -2,7 +2,7 @@
 
 ## TL;DR
 - **Goal:** a full "Suspect Mode" for Ready or Not, as big as the normal SWAT mode. Players are suspects, the AI is SWAT, and it works in Steam co-op. See [ROADMAP.md](ROADMAP.md) for the whole wish-list (the user wants *everything*, built incrementally).
-- **Done:** v0.1 lite, verified in game (team swap, setup timer, win modes, damage multiplier, stun resist, chat HUD, share zip).
+- **Done:** v0.1 lite, plus v0.2 work on `main` (not released): SWAT top-up spawn with kit, reinforcement waves, "SWAT wins" when all players are down, lobby and replay fixes. See "v0.2 session" below.
 - **Route:** UE4SS (experimental v4.0.0-6, `dwmapi.dll` proxy) plus a Lua mod. The game has **no anti-cheat**, and the devs support mods officially (mod.io), so co-op with modded clients is fine.
 - **Authority:** all logic runs only where `FindFirstOf("ReadyOrNotGameMode")` is valid, i.e. the host / listen server. Team and health replicate to clients.
 - **The user** is on a tight usage budget. Work one vertical slice at a time, verify it in game, commit, and ship a zip from `tools/build_dist.sh`.
@@ -14,7 +14,7 @@
 | Mods dir | `...\ReadyOrNot\Binaries\Win64\ue4ss\Mods\` (`mods.txt` lists `RonBridge : 1`, `RonSuspect : 1`) |
 | UE4SS log | `...\Binaries\Win64\ue4ss\UE4SS.log` (the mod prints `[SuspectMode] ...`) |
 | Working folder | `E:\MixUps\ronsuspect` (this repo is cloned at `E:\MixUps\ronsuspect\repo`; `MODLOG.md` is there too) |
-| Bridge files | `E:\MixUps\ronsuspect\bridge\` (`cmd.lua` in, `out.txt` out). The path is hardcoded in `dev/RonBridge` and `dev/q.sh`; change both if you move it. |
+| Bridge files | `%LOCALAPPDATA%\Temp\ronbridge` (`cmd.lua` in, `out.txt` out), or `$RON_BRIDGE` if set. `dev/RonBridge` and `dev/q.sh` share that default. |
 | Save backup | `~/.universal-modder/backups/readyornot-saves/*.zip` |
 
 The game folder also has a `version.dll` and `cream_api.ini` that are not ours. Don't touch them.
@@ -56,3 +56,28 @@ The game folder also has a `version.dll` and `cream_api.ini` that are not ours. 
 - `PlayerController:ConsoleCommand` isn't callable from Lua here. Use `KismetSystemLibrary:ExecuteConsoleCommand(ctx, cmd, pc)`.
 - AssetRegistry from Lua works: `GetAssetsByPath(FName(path), outTable, true, false)` fills a Lua table of FAssetData.
 - The dev box's hook policy blocks `sleep N && ...` chains. Use background waits (`run_in_background`).
+
+## v0.2 session (2026-11-13, second dev box, RoN_Gas_Core, solo host)
+Second box: game at `C:\Program Files (x86)\Steam\steamapps\common\Ready Or Not`. No working folder outside the repo clone.
+
+Verified in game (three full automated rounds, player idle):
+- Top-up at the breach: 4 map SWAT + 4 spawned = 8 (`SwatBase 6 + SwatPerPlayer 2 * 1`), then 3 waves of +2 → 14. All 14 held a weapon.
+- Timer win fires and kills the remaining SWAT. Replaying the same map starts a fresh round.
+- The mode no longer starts in the pre-mission lobby.
+
+Found, not fixed:
+- **Spawned SWAT are passive.** `GetTrackedTarget()` is valid only for the map's own 4; the spawned ones stand at the spawn point.
+- **No SWAT shot an idle player.** The player stood 60 cm from the squad for 140 s at 100 health. Not tested: whether they fire once the player shoots or holds a gun on them (needs a human at the keyboard).
+- "SWAT WINS" (all players down) is written but never triggered in a test.
+- Not tested: co-op with a second player, maps with no SWAT of their own (the anchor then falls back to a far navmesh point), full missions from the menu.
+
+Fixes to v0.1 behaviour made on the way:
+- `BasePlayer_Customization_C` (lobby mannequins) are `PlayerCharacter`s. They used to start the setup timer in the pre-mission screen; `playerChars()` now ignores them and needs a controller.
+- The mission key is the GameMode instance name, not the map name, so a replay of the same map restarts the mode.
+- `CyberneticsSwatTrailer_C` pawns parked at z = -10000 are no longer counted as SWAT (they made "wipe all SWAT" impossible).
+
+How to drive the game without a human:
+- `open <map>` lands in the pre-mission lobby. `FindFirstOf("ReadyOrNotPlayerController"):ReadyUp()` starts the mission and spawns the player.
+- Each mod has its own Lua state: `RonSuspect` is not visible from the bridge. Changed mod code needs a game restart (or hot-load a second copy into the bridge state, which then runs next to the first).
+- A crash leaves `CrashReporter.exe` open and Steam will not relaunch until it is closed.
+- **Crash:** passing the userdata from `InventoryComp:GetLastEquippedLoadout()` into `Server_AttemptEquipNewLoadout` / `EquipLoadoutOnPlayer` killed the game. Don't.
