@@ -1,6 +1,7 @@
 -- SUSPECT MODE settings (host's file is the one that counts). Edit, then restart the game.
 return {
   Enabled          = true,
+  SpawnAway        = true,   -- move players away from the SWAT entry point when the mission starts
   PrepSeconds      = 60,     -- trap/setup time at mission start: you can't be hurt, SWAT AI is blind
   WinMode          = "timer",-- "timer" = survive SurviveSeconds, "kills" = kill KillTarget SWAT
   SurviveSeconds   = 600,

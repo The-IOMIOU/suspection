@@ -96,3 +96,13 @@ Ideas, untested:
 1. Detach the map squad from the player (find where the squad/leader is stored: look for a SWAT manager, `OnSquadRoleAssigned`, `IsSameSquad`, the command HUD's source) or kill it at the breach and use only spawned SWAT.
 2. Give spawned SWAT a combat activity (find what creates `SwatCombatActivity` for the map squad).
 3. Use the autonomous suspect AI as the enemy instead: `CyberneticsSuspect_V2_C` + `SuspectController` on team 1 with a weapon from `giveKit`-style item spawning, since suspect AI attacks on its own in the normal game.
+
+## v0.2 session, part 3: hostile AI experiments (2026-11-13)
+- **User test (human at the keyboard): SWAT do not shoot back when the suspect-team player shoots them.** The SWAT AI never fights players, whatever their team.
+- `SpawnAway` (new, verified): during setup each player is teleported once (`K2_TeleportTo`) to the farthest of 24 random reachable points within 120 m of the squad. Test: moved 61 m on RoN_Gas_Core.
+- Spawned AI is inert because `Archetype` is nil. A suspect spawned deferred with `a.Archetype = a.DefaultSuspectArchetype` (`/Game/Blueprints/AI/Archetypes/Core/Suspect_Common`) set before `FinishSpawningActor` does walk around.
+- **Crash, 3 times out of 3:** such an archetyped `CyberneticsSuspect_V2_C` (team 3, player on team 2) placed within ~7 m of the player crashes the game within seconds, armed by `giveKit`-style items or unarmed. `EXCEPTION_ACCESS_VIOLATION reading 0x290`, no symbols. One placed 8-15 m away with no line of sight wandered for 40 s without a crash. So hand-spawned suspects lack data the combat code needs.
+- `SpawnAIFromClass` gives suspects team 0; `SpawnRandomAI` gives team 3. A suspect moved to team 1 reports `IsCharacterEnemy(team-3 player) == false`; on team 3 against a team-2 player it reports true.
+- Only `Suspect_Common` and `Civilian_Scared` archetypes are loaded on a bare `open` map; there is no SWAT archetype object.
+
+Next idea, untested: in a full mission started from the menu the map has real `AISpawn` actors. Move one (`K2_SetActorLocation`) and call `DoSpawn()` to get a fully initialised suspect, then compare its fields with a hand-spawned one to find what is missing. Fully working hostile AI in this game is suspect AI against SWAT-team players, so the mode may have to keep players on the SWAT team internally and present suspect AI as the "SWAT" (look and kit swapped).

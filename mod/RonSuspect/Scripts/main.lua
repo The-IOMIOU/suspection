@@ -1,7 +1,7 @@
 -- SUSPECT MODE v0.2 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
-local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20}
+local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true}
 local okc, cfg = pcall(dofile, dir.."config.lua"); if not okc or type(cfg)~="table" then cfg = {Enabled=true,PrepSeconds=60,WinMode="timer",SurviveSeconds=600,KillTarget=4,SuspectHealthMult=2.5,StunResist=true,StunMaxSeconds=0.75,AnnounceEvery=60,SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,ToggleKey="F7",StatusKey="F8"} end
 for k,v in pairs(DEF) do if cfg[k]==nil then cfg[k]=v end end  -- old config.lua files keep working
 local TT_SUSPECT, TT_SWAT = 3, 1
@@ -124,6 +124,29 @@ local function swatIntel()
   return n
 end
 
+-- Players start at the SWAT entry point, next to the squad. Move each one once, during setup, to the
+-- reachable spot farthest from the squad so they begin as suspects somewhere on the map.
+local function moveAway()
+  S.moved = S.moved or {}
+  local N = StaticFindObject("/Script/NavigationSystem.Default__NavigationSystemV1"); if not valid(N) then return end
+  local sw; for _,c in ipairs(swatChars()) do if not c:IsHealthDepleted() then sw = c break end end
+  if not sw then return end  -- the squad spawns a moment after the players
+  local a = sw:K2_GetActorLocation()
+  for _,pl in ipairs(playerChars()) do local key = pl:GetFullName()
+    if not S.moved[key] then
+      local best, bestD = nil, -1
+      for _=1,24 do local out={} if N:K2_GetRandomReachablePointInRadius(pl,{X=a.X,Y=a.Y,Z=a.Z},out,12000.0,nil,nil) then
+        local d=(out.X-a.X)^2+(out.Y-a.Y)^2 if d>bestD then bestD=d best=out end end end
+      if best and bestD > 1500^2 then
+        local r = pl:K2_GetActorRotation()
+        pl:K2_TeleportTo({X=best.X,Y=best.Y,Z=best.Z+100},{Pitch=0,Yaw=r.Yaw,Roll=0})
+        log(("moved a player %.0f m away from SWAT"):format(math.sqrt(bestD)/100))
+      end
+      S.moved[key] = true
+    end
+  end
+end
+
 local function swatTarget() return math.min(cfg.SwatMax, cfg.SwatBase + cfg.SwatPerPlayer * players()) end
 
 local function makeSuspects(prep)
@@ -167,7 +190,7 @@ local function tick()
   local map = inMission()
   if not map then S.map=nil S.phase="idle" return end
   if map ~= S.map then -- new mission
-    S.map=map S.phase="prep" S.done=false S.limbs={} S.anchor=nil S.waves=0 S.t0=os.time() S.prepEnd=S.t0+cfg.PrepSeconds S.lastAnn=0
+    S.map=map S.phase="prep" S.done=false S.limbs={} S.anchor=nil S.waves=0 S.moved={} S.t0=os.time() S.prepEnd=S.t0+cfg.PrepSeconds S.lastAnn=0
     chat(("You are the SUSPECTS. %ds to set up - SWAT AI hunts you after that. Goal: %s"):format(cfg.PrepSeconds,
       cfg.WinMode=="kills" and ("kill "..cfg.KillTarget.." SWAT") or ("survive "..fmt(cfg.SurviveSeconds))))
   end
@@ -177,6 +200,7 @@ local function tick()
     if cfg.SwatIntelEvery > 0 then swatIntel() end
     chat("SWAT IS BREACHING! "..swatAlive().." operators inbound.") end
   if S.done then return end
+  if S.phase=="prep" and cfg.SpawnAway then moveAway() end
   makeSuspects(S.phase=="prep")
   if S.phase=="live" then
     if playersAlive() == 0 then return lose() end
