@@ -12,6 +12,7 @@ return {
   ReinforceEvery   = 120,    -- seconds between reinforcement waves (0 = off); a wiped squad is replaced at once
   ReinforceSize    = 2,      -- SWAT per wave
   ReinforceWaves   = 3,      -- waves per mission; wiping SWAT only wins once these are used up
+  SwatIntelEvery   = 20,     -- every N seconds all SWAT learn where the players are and hunt them (0 = off: they must spot you)
   StunResist       = true,   -- flashbangs/stingers/gas/sound hit you way less (stuns cut short)
   StunMaxSeconds   = 0.75,
   AnnounceEvery    = 60,     -- chat status every N seconds

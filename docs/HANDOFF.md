@@ -81,3 +81,18 @@ How to drive the game without a human:
 - Each mod has its own Lua state: `RonSuspect` is not visible from the bridge. Changed mod code needs a game restart (or hot-load a second copy into the bridge state, which then runs next to the first).
 - A crash leaves `CrashReporter.exe` open and Steam will not relaunch until it is closed.
 - **Crash:** passing the userdata from `InventoryComp:GetLastEquippedLoadout()` into `Server_AttemptEquipNewLoadout` / `EquipLoadoutOnPlayer` killed the game. Don't.
+
+## v0.2 session, part 2: why SWAT don't fight (2026-11-13)
+What was measured on RoN_Gas_Core, player idle with a rifle in hand:
+- Map SWAT have a `SwatCombatActivity` (`ctl:GetCombatActivity()`); spawned SWAT have none. Spawned SWAT do sense the player (`LastSensedCharacter`, `RecentlySeenSuspects`).
+- `ctl.TargetingComponent:AddKnownEnemy(player, true)` makes spawned SWAT track the player (0 → 5-8 of 14 tracking). This is now `SwatIntelEvery` in the mod.
+- Even so, in a 200 s live round nobody moved toward the player and the player took **no damage** (all limbs 100).
+- The squad HUD still lists the map's 4 SWAT under the player with orders (FALL IN, MOVE TO): they are the player's own command squad and stand 60-70 cm from the leader. Changing `PlayerState.Team` does not detach them.
+- `SpawnRandomAI(3)` gave 2 civilians and 1 suspect. Moved to team 1 they track the player, but the suspect was unarmed and did nothing.
+
+Not tested (needs a human playing): whether SWAT open fire once the player shoots at them or aims at them.
+
+Ideas, untested:
+1. Detach the map squad from the player (find where the squad/leader is stored: look for a SWAT manager, `OnSquadRoleAssigned`, `IsSameSquad`, the command HUD's source) or kill it at the breach and use only spawned SWAT.
+2. Give spawned SWAT a combat activity (find what creates `SwatCombatActivity` for the map squad).
+3. Use the autonomous suspect AI as the enemy instead: `CyberneticsSuspect_V2_C` + `SuspectController` on team 1 with a weapon from `giveKit`-style item spawning, since suspect AI attacks on its own in the normal game.

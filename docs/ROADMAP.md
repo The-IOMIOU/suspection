@@ -16,7 +16,8 @@ Legend: [x] done · [ ] todo · (hint) = where to start, see ENGINE_NOTES.md
 ## M1: Enough SWAT, always (next; it blocks co-op without an AI squad)
 - [x] Spawn N SWAT AI at the breach: `SwatBase + SwatPerPlayer * players`, capped by `SwatMax`, next to the map's squad, each with armour, helmet, pistol and a random primary (v0.2)
 - [x] Waves / reinforcements: `ReinforceEvery`, `ReinforceSize`, `ReinforceWaves`; a wiped squad is replaced at once (v0.2)
-- [ ] **Spawned SWAT are passive**: armed and hostile on paper (`IsCharacterEnemy` true) but they never track a target or leave the spawn. The map's 4 do track. Fix this first.
+- [x] `SwatIntelEvery`: all SWAT get the players as known enemies every N seconds; spawned SWAT then track them (v0.2)
+- [ ] **SWAT still do not move or shoot.** They track the player but stand still and deal no damage. The map's squad treats the player as its leader. Fix this first; see HANDOFF "v0.2 session, part 2".
 - [ ] Make sure SWAT actually breach toward players (stack-up / breach activities on doors near players)
 - [ ] Settings: SWAT accuracy, damage dealt to suspects, damage dealt to SWAT (separate sliders)
 - [ ] Mode: "survive N SWAT kills" = the SWAT ticket pool

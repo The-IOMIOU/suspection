@@ -1,7 +1,7 @@
 -- SUSPECT MODE v0.2 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
-local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3}
+local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20}
 local okc, cfg = pcall(dofile, dir.."config.lua"); if not okc or type(cfg)~="table" then cfg = {Enabled=true,PrepSeconds=60,WinMode="timer",SurviveSeconds=600,KillTarget=4,SuspectHealthMult=2.5,StunResist=true,StunMaxSeconds=0.75,AnnounceEvery=60,SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,ToggleKey="F7",StatusKey="F8"} end
 for k,v in pairs(DEF) do if cfg[k]==nil then cfg[k]=v end end  -- old config.lua files keep working
 local TT_SUSPECT, TT_SWAT = 3, 1
@@ -113,6 +113,17 @@ local function spawnSwat(n)
   return made
 end
 
+-- Spawned SWAT sense players but never act on it, and the map's squad only reacts to what it sees.
+-- "Intel": put every living player on each operator's known-enemy list so the whole element hunts.
+local function swatIntel()
+  local n = 0
+  for _,c in ipairs(swatChars()) do if not c:IsHealthDepleted() then pcall(function()
+    local tc = c.Controller.TargetingComponent
+    for _,pl in ipairs(playerChars()) do if not pl:IsHealthDepleted() then tc:AddKnownEnemy(pl,true) n = n + 1 end end
+  end) end end
+  return n
+end
+
 local function swatTarget() return math.min(cfg.SwatMax, cfg.SwatBase + cfg.SwatPerPlayer * players()) end
 
 local function makeSuspects(prep)
@@ -161,19 +172,22 @@ local function tick()
       cfg.WinMode=="kills" and ("kill "..cfg.KillTarget.." SWAT") or ("survive "..fmt(cfg.SurviveSeconds))))
   end
   local now = os.time()
-  if S.phase=="prep" and now >= S.prepEnd then S.phase="live" S.liveStart=now S.lastAnn=now S.lastWave=now
+  if S.phase=="prep" and now >= S.prepEnd then S.phase="live" S.liveStart=now S.lastAnn=now S.lastWave=now S.lastIntel=now
     spawnSwat(swatTarget() - swatAlive())  -- top the map's squad up to SwatBase + SwatPerPlayer * players
+    if cfg.SwatIntelEvery > 0 then swatIntel() end
     chat("SWAT IS BREACHING! "..swatAlive().." operators inbound.") end
   if S.done then return end
   makeSuspects(S.phase=="prep")
   if S.phase=="live" then
     if playersAlive() == 0 then return lose() end
+    if cfg.SwatIntelEvery > 0 and now - S.lastIntel >= cfg.SwatIntelEvery then S.lastIntel = now; swatIntel() end
     if cfg.WinMode=="kills" and swatDead() >= cfg.KillTarget then return win(swatDead().." SWAT down") end
     if cfg.WinMode~="kills" and now - S.liveStart >= cfg.SurviveSeconds then return win("you held out "..fmt(cfg.SurviveSeconds)) end
     local alive, wavesLeft = swatAlive(), cfg.ReinforceEvery > 0 and S.waves < cfg.ReinforceWaves
     if wavesLeft and (alive==0 or now - S.lastWave >= cfg.ReinforceEvery) then  -- reinforcements: on a timer, or at once after a wipe
       S.lastWave = now; S.waves = S.waves + 1
       local made = spawnSwat(math.min(cfg.ReinforceSize, cfg.SwatMax - alive))
+      if cfg.SwatIntelEvery > 0 then swatIntel() end
       if made > 0 then chat(("SWAT REINFORCEMENTS: +%d (wave %d/%d)"):format(made, S.waves, cfg.ReinforceWaves)) end
       alive = swatAlive()
     end
