@@ -1,31 +1,34 @@
 # Suspection — Suspect Mode for Ready or Not
 
-**Flip Ready or Not around: you and your friends are the suspects, and the SWAT AI breaches the building to get you.**
-It's a UE4SS Lua mod and it works in Steam co-op: the host runs the logic, and everyone installs the same zip.
+**Hold the building while the AI comes for you, in Ready or Not.** You get a setup phase, then armed enemies are sent in waves until you survive the timer, kill enough of them, or go down.
+It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip.
 
-> Status: **v0.1 (lite)**, verified in game on 2026-11-13. A big roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md).
-> Built with AI (Claude Code). If you're an AI agent taking over, start at [docs/HANDOFF.md](docs/HANDOFF.md).
+> Status: **v0.1 is released. `main` is ahead of it** (enemies that shoot, waves, moved start) and has no release zip yet.
+> Tested solo on one map only. Co-op is untested. See [docs/HANDOFF.md](docs/HANDOFF.md) for exactly what is verified.
+> Built with AI (Claude Code). If you are taking over, human or agent, start at [docs/HANDOFF.md](docs/HANDOFF.md). The wish-list is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
-## What v0.1 does
+## What it does on `main`
 | Feature | Details |
 |---|---|
-| Role swap | Every player goes onto the game's own `TT_SUSPECT` team. AI suspects become allies and the SWAT AI targets you natively. |
-| Setup phase | `PrepSeconds` (default 60): you can't be hurt and the SWAT AI is blind (`bDisableSensePerception`). Use it to set up. |
-| Win modes | `timer`: survive `SurviveSeconds`. `kills`: kill `KillTarget` SWAT. Wiping out every SWAT also wins. |
-| Tougher suspects | Damage you take is divided by `SuspectHealthMult` (default 2.5), using per-limb `LimbDamageMultiplier`. |
-| Stun resistance | Flashbang, stinger and gas stuns get cut short after `StunMaxSeconds`. |
-| More SWAT (on `main`, after v0.1) | At the breach the squad is topped up to `SwatBase + SwatPerPlayer * players`, then `ReinforceWaves` waves of `ReinforceSize` arrive every `ReinforceEvery` seconds. |
-| Enemies that shoot (on `main`) | `EnemyMode = "hunters"` (default): hostile AI from the map's own spawners is dropped 25-45 m from a player and attacks. Your AI squad is removed and you start far from the entry point. They still look like suspects, not SWAT. |
+| Enemies that shoot | `EnemyMode = "hunters"` (default): hostile AI from the map's own spawners is dropped 25-45 m from a player and attacks. Your AI squad is removed. They still look like suspects, not SWAT. |
+| Moved start | `SpawnAway`: you are moved away from the entry point when the mission starts. |
+| Setup phase | `PrepSeconds` (default 60): you can't be hurt and the enemies are blind. |
+| Waves | Enemies are topped up to `SwatBase + SwatPerPlayer * players` at the breach. Then `ReinforceWaves` waves of `ReinforceSize` arrive every `ReinforceEvery` seconds. |
+| Win and lose | `timer`: survive `SurviveSeconds`. `kills`: kill `KillTarget` enemies. Wiping them all out also wins. You lose when every player is down. |
+| Tougher players | Damage you take is divided by `SuspectHealthMult` (default 2.5). Stuns are cut short after `StunMaxSeconds`. |
 | Chat HUD | Countdown and status in the in-game chat. The host presses **F7** to toggle the mode and **F8** for status. |
+| Old team swap | `EnemyMode = "swat"` puts players on the suspect team, as in v0.1. The SWAT AI does not shoot players, so this mode has no real enemy. |
+
+It needs a mission that has AI spawners (any normal mission). All settings are in `config.lua`, each with a comment.
 
 ## Install (every player)
-1. Download `SuspectMode_v0.1.zip` from [Releases](../../releases) and unzip it.
+1. Download the latest `SuspectMode_*.zip` from [Releases](../../releases) and unzip it. The newest release is v0.1 and does not have the features above yet. To try `main`, build the zip with `tools/build_dist.sh`.
 2. Double-click `install.bat`. It finds the game folder or asks for it, then copies UE4SS and the mod into `ReadyOrNot\Binaries\Win64`.
 3. Host co-op as usual. The **host's** `ue4ss\Mods\RonSuspect\Scripts\config.lua` is the one that counts.
 
 `uninstall.bat` removes `dwmapi.dll` and the `ue4ss` folder.
 
-Requirements: Ready or Not on Steam. The mission needs SWAT AI (the singleplayer squad, or co-op with the AI squad). Spawning extra SWAT is the next milestone.
+Requirements: Ready or Not on Steam.
 
 ## Repo layout
 ```

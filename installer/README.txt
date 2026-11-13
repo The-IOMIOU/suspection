@@ -1,4 +1,4 @@
-SUSPECT MODE v0.1 for Ready or Not  (UE4SS Lua mod, built with AI - Claude Code)
+SUSPECT MODE for Ready or Not  (UE4SS Lua mod, built with AI - Claude Code)
 
 YOU are the suspects. Every player is moved to the suspect team: AI suspects are your allies,
 and the SWAT AI squad hunts you.
