@@ -1,16 +1,16 @@
--- SUSPECT MODE v0.5 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
+-- SUSPECT MODE v0.6 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
-local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true}
+local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true,Helpers=2,ProtectVIP=true,ShieldSeconds=20,ShieldCooldown=30,HostageKey="F6"}
 local okc, cfg = pcall(dofile, dir.."config.lua"); if not okc or type(cfg)~="table" then cfg = {Enabled=true,PrepSeconds=60,WinMode="timer",SurviveSeconds=600,KillTarget=4,SuspectHealthMult=2.5,StunResist=true,StunMaxSeconds=0.75,AnnounceEvery=60,SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,ToggleKey="F7",StatusKey="F8"} end
 for k,v in pairs(DEF) do if cfg[k]==nil then cfg[k]=v end end  -- old config.lua files keep working
 -- Presets: Preset = "standard" | "easy" | "hardcore" | "survival" | "custom". A preset overrides the matching
 -- config.lua values; "custom" uses config.lua exactly as written.
 local PRESETS = {
-  standard = {WinMode="eliminate", SwatBase=6, SwatPerPlayer=2, ReinforceEvery=0, EnemyAccuracy=0.55, SuspectHealthMult=2.5, PrepSeconds=60, BreachGrace=10, SwatIntelEvery=30},
-  easy     = {WinMode="eliminate", SwatBase=4, SwatPerPlayer=1, ReinforceEvery=0, EnemyAccuracy=0.35, SuspectHealthMult=4,   PrepSeconds=90, BreachGrace=15, SwatIntelEvery=45},
-  hardcore = {WinMode="eliminate", SwatBase=8, SwatPerPlayer=3, ReinforceEvery=150, ReinforceSize=3, ReinforceWaves=2, EnemyAccuracy=0.9, SuspectHealthMult=1.5, PrepSeconds=45, BreachGrace=5, SwatIntelEvery=20},
-  survival = {WinMode="timer", SurviveSeconds=600, SwatBase=6, SwatPerPlayer=2, ReinforceEvery=120, ReinforceSize=2, ReinforceWaves=3, EnemyAccuracy=0.55, SuspectHealthMult=2.5, PrepSeconds=60},
+  standard = {Helpers=2, WinMode="eliminate", SwatBase=6, SwatPerPlayer=2, ReinforceEvery=0, EnemyAccuracy=0.55, SuspectHealthMult=2.5, PrepSeconds=60, BreachGrace=10, SwatIntelEvery=30},
+  easy     = {Helpers=3, WinMode="eliminate", SwatBase=4, SwatPerPlayer=1, ReinforceEvery=0, EnemyAccuracy=0.35, SuspectHealthMult=4,   PrepSeconds=90, BreachGrace=15, SwatIntelEvery=45},
+  hardcore = {Helpers=0, WinMode="eliminate", SwatBase=8, SwatPerPlayer=3, ReinforceEvery=150, ReinforceSize=3, ReinforceWaves=2, EnemyAccuracy=0.9, SuspectHealthMult=1.5, PrepSeconds=45, BreachGrace=5, SwatIntelEvery=20},
+  survival = {Helpers=2, WinMode="timer", SurviveSeconds=600, SwatBase=6, SwatPerPlayer=2, ReinforceEvery=120, ReinforceSize=2, ReinforceWaves=3, EnemyAccuracy=0.55, SuspectHealthMult=2.5, PrepSeconds=60},
 }
 local pre = PRESETS[cfg.Preset or "standard"]
 if pre then for k,v in pairs(pre) do cfg[k] = v end end
@@ -137,6 +137,7 @@ local function dressHunters()
     local cur = ""; pcall(function() cur = c.Mesh.SkeletalMesh:GetFName():ToString() end)
     if not cur:find("SWAT") then
       pcall(captureLook, c)
+      if not S.susVoice then pcall(function() local v = c.SpeechCharacterName:ToString() if not v:find("SWAT") then S.susVoice = v end end) end
       local key = c:GetFullName()
       local n = (#key % 2) + 1  -- stable per pawn
       setMesh(c.Mesh, asset(SWAT_BODIES[n]))
@@ -423,12 +424,18 @@ local function spawnHunters(n)
 end
 
 -- Hunters mode: remember where the AI squad stood (the entry point), then remove it so it cannot help the players.
+-- The AI squad is removed, except cfg.Helpers members who stay as AI suspect helpers: the game's SWAT AI
+-- fights suspect AI on its own and follows the players, so dressed as suspects they are exactly "other suspects but AI".
 local function dropSquad()
   if S.squadGone then return end
   local all = list("SWATCharacter"); if #all == 0 then return end
   swatAnchor()
-  for _,c in ipairs(all) do if valid(c) then pcall(function() c:K2_DestroyActor() end) end end
-  S.squadGone = true; log("AI squad removed")
+  S.helpers = {}
+  local active = swatChars()
+  for i,c in ipairs(active) do if i <= (cfg.Helpers or 0) then S.helpers[#S.helpers+1] = c end end
+  local keep = {} for _,c in ipairs(S.helpers) do keep[c:GetFullName()] = true end
+  for _,c in ipairs(all) do if valid(c) and not keep[c:GetFullName()] then pcall(function() c:K2_DestroyActor() end) end end
+  S.squadGone = true; log("AI squad removed, "..#S.helpers.." kept as suspect helpers")
 end
 
 local function swatTarget() return math.min(cfg.SwatMax, cfg.SwatBase + cfg.SwatPerPlayer * players()) end
@@ -460,15 +467,134 @@ end
 
 local function fmt(s) s=math.max(0,math.floor(s)) return string.format("%d:%02d", s//60, s%60) end
 
+-- ===== M4: hostages, helpers, VIP ==========================================================================
+local function setTeam(c, T)
+  pcall(function() if c.PlayerState and c.PlayerState:IsValid() then c.PlayerState.Team = T end end)
+  pcall(function() c.DefaultTeam = T; c:HandleTeamChanged(T) end)
+end
+local function pname(c) local n = "" pcall(function() n = c.PlayerState:GetPlayerName():ToString() end) return n ~= "" and n or "a suspect" end
+local function fwdPoint(c, dist)
+  local l = c:K2_GetActorLocation(); local yaw = c:K2_GetActorRotation().Yaw
+  pcall(function() yaw = c.Controller:GetControlRotation().Yaw end)
+  local y = math.rad(yaw); return {X=l.X+math.cos(y)*dist, Y=l.Y+math.sin(y)*dist, Z=l.Z}, yaw
+end
+
+-- Command channel: a key on any machine runs the command on the host for that player. On a client the key
+-- sends "#cmd <name> <seq>" through chat; the host reads the chat log and runs each new seq once per sender.
+local CMD = {}
+local cmdSeq, lastSeq = 0, {}
+local function runCmd(name)
+  local pc = localPC(); if not pc then return end
+  if isHost() then local p = pc.Pawn if valid(p) and CMD[name] then CMD[name](p) end return end
+  cmdSeq = cmdSeq + 1
+  pcall(function() pc:Server_SendChatMessage({SenderName=localName(), SenderPlayerState=pc.PlayerState, Message=("#cmd %s %d"):format(name, cmdSeq)}) end)
+end
+local function hostReadCmds()
+  local gs = FindFirstOf("ReadyOrNotGameState"); if not valid(gs) then return end
+  local arr = gs.SavedChatMessages
+  for i = 1, #arr do local m = arr[i]
+    local name, seq = m.Message:ToString():match("^#cmd (%w+) (%d+)")
+    if name then local who = m.SenderName:ToString(); seq = tonumber(seq)
+      if seq > (lastSeq[who] or 0) then lastSeq[who] = seq
+        for _,c in ipairs(playerChars()) do if pname(c) == who and CMD[name] then CMD[name](c) end end end end
+  end
+end
+
+-- Human shield: grab the nearest civilian (3 m), they surrender and are held in front of you. While you hold
+-- them you count as suspect team, and the SWAT (suspect AI underneath) only shoot SWAT-team targets, so they
+-- hold fire. Limited by ShieldSeconds and ShieldCooldown so it is a tactic, not god mode.
+S.shields, S.shieldCd = {}, {}
+local function releaseShield(p, why)
+  local key = p:GetFullName(); local sh = S.shields[key]; if not sh then return end
+  S.shields[key] = nil; S.shieldCd[key] = os.time() + cfg.ShieldCooldown
+  setTeam(p, sh.team)
+  chat(pname(p).." "..why.." the hostage. SWAT can shoot again.")
+end
+CMD.hostage = function(p)
+  local key = p:GetFullName()
+  if S.shields[key] then return releaseShield(p, "let go of") end
+  if S.phase ~= "live" and S.phase ~= "prep" then return end
+  if S.shieldCd[key] and os.time() < S.shieldCd[key] then return chat(("Hostage cooldown: %ds"):format(S.shieldCd[key]-os.time())) end
+  local best, bd = nil, 300
+  local l = p:K2_GetActorLocation()
+  for _,c in ipairs(list("CivilianCharacter")) do if valid(c) and not c:IsHealthDepleted() and not (valid(S.vip) and S.vip:GetFullName() == c:GetFullName()) then
+    local busy = false for _,sh in pairs(S.shields) do if valid(sh.civ) and sh.civ:GetFullName() == c:GetFullName() then busy = true end end
+    local cl = c:K2_GetActorLocation(); local d = math.sqrt((cl.X-l.X)^2 + (cl.Y-l.Y)^2 + (cl.Z-l.Z)^2)
+    if not busy and d < bd then best, bd = c, d end end end
+  if not best then return chat("No civilian within 3 m to grab.") end
+  pcall(function() best:Surrender() end)
+  S.shields[key] = {civ=best, t0=os.time(), team=p:GetTeam()}
+  setTeam(p, TT_SUSPECT)
+  chat(("%s grabbed a hostage! SWAT hold fire for %ds (F6 to let go)."):format(pname(p), cfg.ShieldSeconds))
+end
+local function tickShields()  -- fast loop: keep each hostage pinned in front of their captor
+  for key, sh in pairs(S.shields) do
+    local p; for _,c in ipairs(playerChars()) do if c:GetFullName() == key then p = c end end
+    if not valid(p) or p:IsHealthDepleted() then S.shields[key] = nil
+    elseif not valid(sh.civ) or sh.civ:IsHealthDepleted() then releaseShield(p, "lost")
+    elseif os.time() - sh.t0 >= cfg.ShieldSeconds then releaseShield(p, "can't hold on to")
+    else local pt, yaw = fwdPoint(p, 75)
+      pcall(function() sh.civ:K2_SetActorLocation(pt, false, {}, true); sh.civ:K2_SetActorRotation({Pitch=0, Yaw=yaw, Roll=0}, true) end) end
+  end
+end
+
+-- Helpers wear a suspect look like the players; all SWAT gear parts except weapons are hidden.
+local function dressHelpers()
+  if not S.helpers or #S.looks == 0 then return end
+  local comps = nil
+  for i,c in ipairs(S.helpers) do if valid(c) and not c:IsHealthDepleted() then
+    local look = S.looks[(i * 3) % #S.looks + 1]
+    if (pathOf(c.Mesh.SkeletalMesh) or "") ~= look.body then
+      local b, h = asset(look.body), asset(look.head)
+      if b then pcall(function() c.Mesh:SetSkeletalMeshAsset(b) end) applyMats(c.Mesh, look.bm) end
+      if h then pcall(function() c.FaceMesh:SetSkeletalMeshAsset(h) end) applyMats(c.FaceMesh, look.hm) end
+      if S.susVoice then pcall(function() c.SpeechCharacterName = S.susVoice end) end
+    end
+    comps = comps or list("SkeletalMeshComponent")
+    local me = c:GetFullName()
+    for _,comp in ipairs(comps) do
+      local ok, own = pcall(function() return comp:GetOwner():GetFullName() end)
+      if ok and own == me then local n = comp:GetFName():ToString()
+        local keep = n == "CharacterMesh0" or n == "FaceMesh" or n:find("Primary") or n:find("Secondary") or n:find("Equipped") or n:find("Item")
+        if not keep and comp:IsVisible() then pcall(function() comp:SetVisibility(false, false) end) end end
+    end
+  end end
+end
+local function placeHelpers()
+  local pl = playerChars()[1]; if not (S.helpers and valid(pl)) then return end
+  for i,c in ipairs(S.helpers) do if valid(c) then local l = pl:K2_GetActorLocation(); local a = i * 2.4
+    pcall(function() c:K2_SetActorLocation({X=l.X+math.cos(a)*250, Y=l.Y+math.sin(a)*250, Z=l.Z}, false, {}, true) end) end end
+end
+
+-- VIP: at the breach one civilian becomes the person you must protect. Moved onto the SWAT team so the
+-- SWAT (suspect AI underneath) hunt them too; the suspects lose if the VIP dies.
+local function pickVIP()
+  if not cfg.ProtectVIP then return end
+  local pl = playerChars()[1]; if not valid(pl) then return end
+  local l = pl:K2_GetActorLocation(); local best, bd = nil, 1e12
+  for _,c in ipairs(list("CivilianCharacter")) do if valid(c) and not c:IsHealthDepleted() then
+    local cl = c:K2_GetActorLocation(); local d = (cl.X-l.X)^2 + (cl.Y-l.Y)^2 + (cl.Z-l.Z)^2
+    if d < bd then best, bd = c, d end end end
+  if not best then return end
+  S.vip = best; setTeam(best, 2)
+  chat(("PROTECT THE VIP: a civilian %dm from you is the target. If they die, you lose."):format(math.floor(math.sqrt(bd)/100)))
+end
+local function vipIntel()
+  if not (valid(S.vip) and not S.vip:IsHealthDepleted()) then return end
+  local i = 0
+  for _,c in ipairs(enemies()) do if not c:IsHealthDepleted() then i = i + 1
+    if i % 2 == 0 then pcall(function() c.Controller.TargetingComponent:AddKnownEnemy(S.vip, true) end) end end end
+end
+
 local function win(reason)
   S.done = true; S.phase = "won"
   chat("SUSPECTS WIN - "..reason.."  (remaining SWAT stand down)")
   for _,c in ipairs(enemies()) do if not c:IsHealthDepleted() then pcall(function() c:Kill() end) end end
 end
 
-local function lose()
+local function lose(reason)
   S.done = true; S.phase = "lost"
-  chat("SWAT WINS - all suspects are down. SWAT left: "..swatAlive())
+  chat("SWAT WINS - "..(reason or "all suspects are down")..". SWAT left: "..swatAlive())
 end
 
 local function tick()
@@ -476,7 +602,7 @@ local function tick()
   local map = inMission()
   if not map then S.map=nil S.phase="idle" return end
   if map ~= S.map then -- new mission
-    S.map=map S.phase="prep" S.done=false S.limbs={} S.anchor=nil S.waves=0 S.moved={} S.squadGone=false S.graceEnd=nil S.dressed={} S.t0=os.time() S.prepEnd=S.t0+cfg.PrepSeconds S.lastAnn=0
+    S.map=map S.phase="prep" S.done=false S.limbs={} S.anchor=nil S.waves=0 S.moved={} S.squadGone=false S.helpers=nil S.vip=nil S.shields={} S.shieldCd={} S.graceEnd=nil S.dressed={} S.t0=os.time() S.prepEnd=S.t0+cfg.PrepSeconds S.lastAnn=0
     chat(("You are the SUSPECTS. %ds to set up - SWAT AI hunts you after that. Goal: %s"):format(cfg.PrepSeconds,
       cfg.WinMode=="kills" and ("kill "..cfg.KillTarget.." SWAT") or cfg.WinMode=="eliminate" and "eliminate the whole SWAT team" or ("survive "..fmt(cfg.SurviveSeconds))))
   end
@@ -485,14 +611,16 @@ local function tick()
     local need = swatTarget() - swatAlive()
     if hunters() then spawnHunters(need) else spawnSwat(need) end  -- top the map's squad up to SwatBase + SwatPerPlayer * players
     if cfg.SwatIntelEvery > 0 then swatIntel() end
-    chat("SWAT IS BREACHING! "..swatAlive().." operators inbound.") end
+    chat("SWAT IS BREACHING! "..swatAlive().." operators inbound.")
+    placeHelpers(); pickVIP(); vipIntel() end
   if S.done then return end
   if S.phase=="prep" and cfg.SpawnAway then moveAway() end
   if hunters() then dropSquad() end
   makeSuspects(S.phase=="prep")
   if S.phase=="live" then
     if playersAlive() == 0 then return lose() end
-    if cfg.SwatIntelEvery > 0 and now - S.lastIntel >= cfg.SwatIntelEvery then S.lastIntel = now; swatIntel() end
+    if S.vip and (not valid(S.vip) or S.vip:IsHealthDepleted()) then return lose("the VIP was killed") end
+    if cfg.SwatIntelEvery > 0 and now - S.lastIntel >= cfg.SwatIntelEvery then S.lastIntel = now; swatIntel(); vipIntel() end
     if cfg.WinMode=="kills" and swatDead() >= cfg.KillTarget then return win(swatDead().." SWAT down") end
     if cfg.WinMode=="timer" and now - S.liveStart >= cfg.SurviveSeconds then return win("you held out "..fmt(cfg.SurviveSeconds)) end
     local alive, wavesLeft = swatAlive(), cfg.ReinforceEvery > 0 and S.waves < cfg.ReinforceWaves
@@ -516,6 +644,7 @@ LoopAsync(500, function() ExecuteInGameThread(function()
   if cfg.NoReporting ~= false and isHost() then ok,e=pcall(noReports) if not ok then log("noReports error: "..tostring(e)) end end
   pcall(readChatLooks)
   if my.body and (not S.lastLookSent or os.time() - S.lastLookSent > 60) and inMission() then sendLook() end  -- late joiners
+  if isHost() then pcall(hostReadCmds) pcall(dressHelpers) end
   if S.tick2 then ok,e=pcall(dressPlayers) if not ok then log("dressP error: "..tostring(e)) end end
   S.tick2 = not S.tick2
 end) return false end)
@@ -526,9 +655,11 @@ RegisterKeyBind(key(cfg.ToggleKey), function() ExecuteInGameThread(function()
   S.map=nil; chat("Suspect Mode "..(cfg.Enabled and "ON (restarts setup timer)" or "OFF")) end) end)
 RegisterKeyBind(key(cfg.StatusKey), function() ExecuteInGameThread(function()
   chat(("phase=%s  SWAT alive=%d dead=%d  mode=%s"):format(S.phase, swatAlive(), swatDead(), cfg.WinMode)) end) end)
-log("v0.5 loaded")
+log("v0.6 loaded")
 RegisterKeyBind(Key.F9, function() ExecuteInGameThread(function() cycle("body", 1) end) end)
 RegisterKeyBind(Key.F9, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("body", -1) end) end)
 RegisterKeyBind(Key.F10, function() ExecuteInGameThread(function() cycle("head", 1) end) end)
 RegisterKeyBind(Key.F10, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("head", -1) end) end)
 RegisterKeyBind(Key.F11, function() ExecuteInGameThread(cycleExtras) end)
+LoopAsync(50, function() if next(S.shields) then ExecuteInGameThread(function() pcall(tickShields) end) end return false end)
+RegisterKeyBind(key(cfg.HostageKey or "F6"), function() ExecuteInGameThread(function() runCmd("hostage") end) end)

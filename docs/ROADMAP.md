@@ -45,11 +45,12 @@ Legend: [x] done · [ ] todo · (hint) = where to start, see ENGINE_NOTES.md
 - [ ] Trap budget per kit (balance)
 
 ## M4: Civilians and hostages
-- [ ] Take civilians hostage, drag them, use them as a human shield (SWAT hold fire / ROE)
+- [x] Human shield (v0.6, F6): grab a civilian within 3 m, they're pinned in front of you and SWAT hold fire for `ShieldSeconds`, then a cooldown. Done by switching you to team 3 while shielding. TODO: surrender pose, dragging tied hostages around
 - [ ] Booby-trap civilians (bomb vest; `bAllowExplosiveVestSpawn` exists)
-- [ ] Secretly recruit civilians and arm them (switch them to TT_SUSPECT + give a weapon)
+- [x] AI suspect helpers (v0.6, `Helpers`): squad members kept and dressed as suspects; they follow you and fight the SWAT. Verified: helpers killed 3 SWAT in 25 s.
+- [ ] Secretly recruit civilians and arm them (civilian AI won't fight, so a likely route is to swap a civilian for a helper)
 - [ ] Negotiate a ransom (timer pause / SWAT holds while talking) → set up an ambush
-- [ ] Objective per map: defend a VIP / package / server / boss suspect ("protect target")
+- [x] Protect a VIP (v0.6, `ProtectVIP`): a civilian near you becomes the target (moved to team 2 so SWAT hunt them); lose if they die. TODO: per-map objectives (package, server, boss)
 
 ## M5: Survival and deception
 - [ ] Downed instead of dead: SWAT can cuff a downed suspect; a teammate can patch + untie them; self-untie+patch once (`SelfRescueCount` setting) (hint: CharacterHealthComponent revive fields, arrest fields)

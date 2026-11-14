@@ -3,7 +3,7 @@
 **Hold the building while the AI comes for you, in Ready or Not.** You get a setup phase, then armed enemies are sent in waves until you survive the timer, kill enough of them, or go down.
 It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip.
 
-> Status: **v0.5 is released**: suspect look editor (F9/F10/F11), no reporting, plus everything from v0.4 (presets, eliminate mode, SWAT voices, aim slider, players dressed as suspects).
+> Status: **v0.6 is released**: human shield (F6), AI suspect helpers, protect-the-VIP. Before that, v0.5: suspect look editor (F9/F10/F11), no reporting, plus everything from v0.4 (presets, eliminate mode, SWAT voices, aim slider, players dressed as suspects).
 > Tested solo on one map only. Co-op is untested. See [docs/HANDOFF.md](docs/HANDOFF.md) for exactly what is verified.
 > Built with AI (Claude Code). If you are taking over, human or agent, start at [docs/HANDOFF.md](docs/HANDOFF.md). The wish-list is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -17,6 +17,9 @@ It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip
 | You look like a suspect | `DressPlayersAsSuspects`: your SWAT outfit parts and helmet are hidden and you wear a real suspect body and head, captured from the map's suspects and saved in `looks.txt`. Armour stays on top (`DressKeepArmor`). `SuspectLook = n` picks a fixed look. |
 | Look editor | **F9** / Shift+F9: next/previous suspect body. **F10** / Shift+F10: head. **F11**: extras (none, armour, helmet, both). Saved in `mylook.txt`, and sent to the other players through a `#look` chat line so they see you the same way. Looks come from suspects you have met (`looks.txt`). |
 | No reporting | `NoReporting`: suspects don't call TOC. No "Report" prompt on bodies, arrests or props. |
+| Human shield | **F6** near a civilian (3 m): grab them. SWAT hold fire while you hold them, for `ShieldSeconds` (20), then a `ShieldCooldown` (30). Works for clients too (sent to the host as a `#cmd` chat line). |
+| AI helpers | `Helpers` (standard 2): squad members kept as suspects in suspect clothes. They follow you and fight the SWAT. |
+| Protect the VIP | `ProtectVIP`: at the breach a civilian near you becomes the VIP. SWAT hunt them too, and you lose if they die. |
 | Breach grace | `BreachGrace` (default 10 s): enemies stay blind for a moment after the breach. |
 | Moved start | `SpawnAway`: you are moved away from the entry point when the mission starts. |
 | Setup phase | `PrepSeconds` (default 60): you can't be hurt and the enemies are blind. |
