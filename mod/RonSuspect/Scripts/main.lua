@@ -1,7 +1,7 @@
--- SUSPECT MODE v0.6 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
+-- SUSPECT MODE v0.7 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
-local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true,Helpers=2,ProtectVIP=true,ShieldSeconds=20,ShieldCooldown=30,HostageKey="F6"}
+local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true,Helpers=2,ProtectVIP=true,ShieldSeconds=20,ShieldCooldown=30}
 local okc, cfg = pcall(dofile, dir.."config.lua"); if not okc or type(cfg)~="table" then cfg = {Enabled=true,PrepSeconds=60,WinMode="timer",SurviveSeconds=600,KillTarget=4,SuspectHealthMult=2.5,StunResist=true,StunMaxSeconds=0.75,AnnounceEvery=60,SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,ToggleKey="F7",StatusKey="F8"} end
 for k,v in pairs(DEF) do if cfg[k]==nil then cfg[k]=v end end  -- old config.lua files keep working
 -- Presets: Preset = "standard" | "easy" | "hardcore" | "survival" | "custom". A preset overrides the matching
@@ -64,8 +64,9 @@ end
 local CH = "/Game/ReadyOrNot/Character/SWAT/"
 local SWAT_BODIES = { CH.."SWAT_Officer/Uniform_Heavy/SK_SWAT_U_Heavy_01.SK_SWAT_U_Heavy_01", CH.."SWAT_Officer/Uniform_Light/SK_SWAT_U_Light_01.SK_SWAT_U_Light_01" }
 local SWAT_HEADS  = { CH.."Heads/Swan/Meshes/head_swan_masked_LOD0_opt.head_swan_masked_LOD0_opt", CH.."Heads/Judge/Meshes/SK_SWAT_Head_Judge_Helmet_Masked_opt.SK_SWAT_Head_Judge_Helmet_Masked_opt" }
-local function asset(path)
+local function asset(path, noLoad)
   local a = StaticFindObject(path)
+  if noLoad then return valid(a) and a or nil end  -- suspect looks: a forced LoadAsset mid-mission crashed the game twice
   if not valid(a) then pcall(function() LoadAsset(path) end) a = StaticFindObject(path) end  -- full object path loads it
   if not valid(a) then pcall(function() LoadAsset((path:gsub("%.[^.]+$",""))) end) a = StaticFindObject(path) end
   return valid(a) and a or nil
@@ -117,7 +118,7 @@ local function captureLook(c)
   saveLooks(); log("captured suspect look "..(b:match("[^/.]+$") or b))
 end
 local function applyMats(comp, paths)
-  for i,pth in ipairs(paths) do local m = asset(pth) if m then pcall(function() comp:SetMaterial(i-1, m) end) end end
+  for i,pth in ipairs(paths) do local m = asset(pth, true) if m then pcall(function() comp:SetMaterial(i-1, m) end) end end
 end
 
 local function nameHash(s) local h=0 for i=1,#s do h=(h*31+s:byte(i))%100003 end return h end
@@ -235,11 +236,11 @@ local function dressPlayers()
     local cur = pathOf(c.Mesh.SkeletalMesh) or ""
     local curH = pathOf(c.FaceMesh.SkeletalMesh) or ""
     if cur ~= bodyL.body then
-      local body = asset(bodyL.body)
+      local body = asset(bodyL.body, true)
       if body then pcall(function() c.Mesh:SetSkeletalMeshAsset(body) end) applyMats(c.Mesh, bodyL.bm) end
     end
     if curH ~= headL.head then
-      local head = asset(headL.head)
+      local head = asset(headL.head, true)
       if head then pcall(function() c.FaceMesh:SetSkeletalMeshAsset(head) end) applyMats(c.FaceMesh, headL.hm) end
     end
     local keepArmor = cfg.DressKeepArmor ~= false
@@ -462,7 +463,7 @@ local function makeSuspects(prep)
     end
   end end
   local blind = prep or (S.graceEnd and os.time() < S.graceEnd)  -- setup time, then a short grace after the breach
-  for _,c in ipairs(enemies()) do pcall(function() c.Controller.bDisableSensePerception = blind and true or false end) end
+  for _,c in ipairs(enemies()) do pcall(function() local ct = c.Controller if valid(ct) then ct.bDisableSensePerception = blind and true or false end end) end
 end
 
 local function fmt(s) s=math.max(0,math.floor(s)) return string.format("%d:%02d", s//60, s%60) end
@@ -508,6 +509,12 @@ local function releaseShield(p, why)
   local key = p:GetFullName(); local sh = S.shields[key]; if not sh then return end
   S.shields[key] = nil; S.shieldCd[key] = os.time() + cfg.ShieldCooldown
   setTeam(p, sh.team)
+  if valid(sh.civ) then
+    pcall(function() sh.civ:K2_DetachFromActor(1, 1, 1) end)
+    pcall(function() sh.civ:StopAnimMontage(nil) end)
+    pcall(function() sh.civ.CapsuleComponent:SetCollisionEnabled(3) end)
+    pcall(function() sh.civ.CharacterMovement:SetMovementMode(1, 0) end)
+  end
   chat(pname(p).." "..why.." the hostage. SWAT can shoot again.")
 end
 CMD.hostage = function(p)
@@ -515,27 +522,101 @@ CMD.hostage = function(p)
   if S.shields[key] then return releaseShield(p, "let go of") end
   if S.phase ~= "live" and S.phase ~= "prep" then return end
   if S.shieldCd[key] and os.time() < S.shieldCd[key] then return chat(("Hostage cooldown: %ds"):format(S.shieldCd[key]-os.time())) end
-  local best, bd = nil, 300
-  local l = p:K2_GetActorLocation()
+  -- Candidates within 3 m, nearest first. Scripted civilians (seated etc.) can't be moved, so each grab is
+  -- checked and undone if the person didn't actually end up in front of you.
+  local l = p:K2_GetActorLocation(); local cands = {}
   for _,c in ipairs(list("CivilianCharacter")) do if valid(c) and not c:IsHealthDepleted() and not (valid(S.vip) and S.vip:GetFullName() == c:GetFullName()) then
     local busy = false for _,sh in pairs(S.shields) do if valid(sh.civ) and sh.civ:GetFullName() == c:GetFullName() then busy = true end end
     local cl = c:K2_GetActorLocation(); local d = math.sqrt((cl.X-l.X)^2 + (cl.Y-l.Y)^2 + (cl.Z-l.Z)^2)
-    if not busy and d < bd then best, bd = c, d end end end
-  if not best then return chat("No civilian within 3 m to grab.") end
-  pcall(function() best:Surrender() end)
+    if not busy and d < 300 then cands[#cands+1] = {c=c, d=d} end end end
+  table.sort(cands, function(a,b) return a.d < b.d end)
+  local best = nil
+  for _,cd in ipairs(cands) do local c = cd.c
+    -- Held = attached to the captor 60 cm ahead, a little left so you can aim past their shoulder. Attachment
+    -- replicates, so every machine sees them glued in front.
+    pcall(function() c:K2_DetachFromActor(1, 1, 1) end)
+    pcall(function() c.CharacterMovement:SetMovementMode(1, 0) end)   -- break any scripted pose first
+    pcall(function() c.CharacterMovement:DisableMovement() end)
+    pcall(function() c.CapsuleComponent:SetCollisionEnabled(0) end)   -- no capsule shove; the mesh still stops bullets
+    pcall(function() c:K2_AttachToActor(p, FName("None"), 2, 2, 1, false) end)
+    pcall(function() c.RootComponent:K2_SetRelativeLocationAndRotation({X=cfg.ShieldDistance or 60, Y=-22, Z=0}, {Pitch=0, Yaw=0, Roll=0}, false, {}, true) end)
+    local cl = c:K2_GetActorLocation()
+    if (cl.X-l.X)^2 + (cl.Y-l.Y)^2 < 120*120 then best = c break end
+    pcall(function() c:K2_DetachFromActor(1, 1, 1) end)   -- didn't move: undo, try the next one
+    pcall(function() c.CapsuleComponent:SetCollisionEnabled(3) end)
+    pcall(function() c.CharacterMovement:SetMovementMode(1, 0) end)
+    log("civilian "..c:GetFName():ToString().." couldn't be grabbed (scripted), trying next")
+  end
+  if not best then return false end
   S.shields[key] = {civ=best, t0=os.time(), team=p:GetTeam()}
   setTeam(p, TT_SUSPECT)
-  chat(("%s grabbed a hostage! SWAT hold fire for %ds (F6 to let go)."):format(pname(p), cfg.ShieldSeconds))
+  chat(("%s took a human shield! SWAT hold fire for %ds. Switch weapon to let go."):format(pname(p), cfg.ShieldSeconds))
+  return true
 end
-local function tickShields()  -- fast loop: keep each hostage pinned in front of their captor
+local function tickShields()  -- hold timer, captor/hostage death
   for key, sh in pairs(S.shields) do
     local p; for _,c in ipairs(playerChars()) do if c:GetFullName() == key then p = c end end
     if not valid(p) or p:IsHealthDepleted() then S.shields[key] = nil
+      if valid(sh.civ) then pcall(function() sh.civ:K2_DetachFromActor(1, 1, 1) end) pcall(function() sh.civ.CapsuleComponent:SetCollisionEnabled(3) end) pcall(function() sh.civ.CharacterMovement:SetMovementMode(1, 0) end) end
     elseif not valid(sh.civ) or sh.civ:IsHealthDepleted() then releaseShield(p, "lost")
     elseif os.time() - sh.t0 >= cfg.ShieldSeconds then releaseShield(p, "can't hold on to")
-    else local pt, yaw = fwdPoint(p, 75)
-      pcall(function() sh.civ:K2_SetActorLocation(pt, false, {}, true); sh.civ:K2_SetActorRotation({Pitch=0, Yaw=yaw, Roll=0}, true) end) end
+    end
   end
+end
+
+-- The riot shield IS the grab: equip the ballistic shield within 3 m of a civilian and they become your
+-- shield instead (upright, hands up, in front of you). Switch to any other item to let go. Host-side.
+local function hasShield(p)  -- equipped item is the ballistic shield (BP_BallisticShield_C)
+  local ok, r = pcall(function() local it = p.InventoryComp:GetEquippedItem() return valid(it) and it:GetClass():GetFName():ToString():find("Shield") ~= nil end)
+  return ok and r
+end
+S.shieldWas = {}
+local function shieldTrigger()
+  for _,p in ipairs(playerChars()) do if not p:IsHealthDepleted() then
+    local key = p:GetFullName(); local on = hasShield(p)
+    if on and not S.shieldWas[key] and not S.shields[key] then
+      if not (S.shieldCd[key] and os.time() < S.shieldCd[key]) then CMD.hostage(p) end
+    elseif not on and S.shields[key] then releaseShield(p, "let go of") end
+    S.shieldWas[key] = on and true or false
+  end end
+end
+
+-- Visuals on every machine: a player holding the shield with a civilian pinned in front hides the shield
+-- (3rd-person component and the held item) and the civilian plays the game's own hostage idle (standing, held).
+local HOSTAGE_IDLE = "/Game/ReadyOrNot/Animations/TP/interaction/hostage/new/montages/tp_hostage_idle_01_slave_Montage.tp_hostage_idle_01_slave_Montage"
+local function shieldVisuals()
+  local civs = nil
+  for _,p in ipairs(list("PlayerCharacter")) do if valid(p) and not p:GetClass():GetFName():ToString():find("Custom") and hasShield(p) then
+    civs = civs or list("CivilianCharacter")
+    local l = p:K2_GetActorLocation(); local held = nil
+    for _,c in ipairs(civs) do if valid(c) and not c:IsHealthDepleted() then
+      local cl = c:K2_GetActorLocation(); if (cl.X-l.X)^2 + (cl.Y-l.Y)^2 < 110*110 then held = c end end end
+    if held then
+      pcall(function() local item = p.InventoryComp:GetEquippedItem() if valid(item) then item:SetActorHiddenInGame(true) end end)
+      for _,comp in ipairs(list("SkeletalMeshComponent")) do
+        local ok, own = pcall(function() return comp:GetOwner():GetFullName() end)
+        if ok and own == p:GetFullName() then local n = comp:GetFName():ToString()
+          if (n == "LongTacticalVisualizationComponent" or n == "EquippedVisualizationComponent") and comp:IsVisible() then
+            local mn = ""; pcall(function() mn = comp.SkeletalMesh:GetFName():ToString() end)
+            if mn:find("Shield") then pcall(function() comp:SetVisibility(false, false) end) end end end
+      end
+      local m = asset(HOSTAGE_IDLE, true)
+      if m then pcall(function()
+        local ai = held.Mesh:GetAnimInstance()
+        if not ai:Montage_IsPlaying(m) then held:PlayAnimMontage(m, 1.0, FName("None")) end end) end
+    end
+  end end
+end
+
+-- No reporting part 2: the map's SWAT objectives ("report the manager", "bring order to chaos", ...) are hidden
+-- and can't end the mission. Every machine, so the HUD list is empty for clients too.
+local function hideObjectives()
+  local gs = FindFirstOf("ReadyOrNotGameState"); if not valid(gs) then return end
+  pcall(function()
+    local mo = gs.MissionObjectives
+    for i = 1, #mo do local o = mo[i]
+      if valid(o) and not o.bHiddenObjective then o.bHiddenObjective = true; o.bFailureEndsMission = false end end
+  end)
 end
 
 -- Helpers wear a suspect look like the players; all SWAT gear parts except weapons are hidden.
@@ -545,7 +626,7 @@ local function dressHelpers()
   for i,c in ipairs(S.helpers) do if valid(c) and not c:IsHealthDepleted() then
     local look = S.looks[(i * 3) % #S.looks + 1]
     if (pathOf(c.Mesh.SkeletalMesh) or "") ~= look.body then
-      local b, h = asset(look.body), asset(look.head)
+      local b, h = asset(look.body, true), asset(look.head, true)
       if b then pcall(function() c.Mesh:SetSkeletalMeshAsset(b) end) applyMats(c.Mesh, look.bm) end
       if h then pcall(function() c.FaceMesh:SetSkeletalMeshAsset(h) end) applyMats(c.FaceMesh, look.hm) end
       if S.susVoice then pcall(function() c.SpeechCharacterName = S.susVoice end) end
@@ -644,7 +725,9 @@ LoopAsync(500, function() ExecuteInGameThread(function()
   if cfg.NoReporting ~= false and isHost() then ok,e=pcall(noReports) if not ok then log("noReports error: "..tostring(e)) end end
   pcall(readChatLooks)
   if my.body and (not S.lastLookSent or os.time() - S.lastLookSent > 60) and inMission() then sendLook() end  -- late joiners
-  if isHost() then pcall(hostReadCmds) pcall(dressHelpers) end
+  if isHost() then pcall(hostReadCmds) pcall(dressHelpers) if inMission() then pcall(shieldTrigger) end end
+  if cfg.NoReporting ~= false then pcall(hideObjectives) end
+  pcall(shieldVisuals)
   if S.tick2 then ok,e=pcall(dressPlayers) if not ok then log("dressP error: "..tostring(e)) end end
   S.tick2 = not S.tick2
 end) return false end)
@@ -655,11 +738,10 @@ RegisterKeyBind(key(cfg.ToggleKey), function() ExecuteInGameThread(function()
   S.map=nil; chat("Suspect Mode "..(cfg.Enabled and "ON (restarts setup timer)" or "OFF")) end) end)
 RegisterKeyBind(key(cfg.StatusKey), function() ExecuteInGameThread(function()
   chat(("phase=%s  SWAT alive=%d dead=%d  mode=%s"):format(S.phase, swatAlive(), swatDead(), cfg.WinMode)) end) end)
-log("v0.6 loaded")
+log("v0.7 loaded")
 RegisterKeyBind(Key.F9, function() ExecuteInGameThread(function() cycle("body", 1) end) end)
 RegisterKeyBind(Key.F9, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("body", -1) end) end)
 RegisterKeyBind(Key.F10, function() ExecuteInGameThread(function() cycle("head", 1) end) end)
 RegisterKeyBind(Key.F10, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("head", -1) end) end)
 RegisterKeyBind(Key.F11, function() ExecuteInGameThread(cycleExtras) end)
-LoopAsync(50, function() if next(S.shields) then ExecuteInGameThread(function() pcall(tickShields) end) end return false end)
-RegisterKeyBind(key(cfg.HostageKey or "F6"), function() ExecuteInGameThread(function() runCmd("hostage") end) end)
+LoopAsync(250, function() if next(S.shields) then ExecuteInGameThread(function() local ok, e = pcall(tickShields) if not ok and not S.tsErr then S.tsErr = true log("tickShields error: "..tostring(e)) end end) end return false end)

@@ -45,7 +45,7 @@ Legend: [x] done · [ ] todo · (hint) = where to start, see ENGINE_NOTES.md
 - [ ] Trap budget per kit (balance)
 
 ## M4: Civilians and hostages
-- [x] Human shield (v0.6, F6): grab a civilian within 3 m, they're pinned in front of you and SWAT hold fire for `ShieldSeconds`, then a cooldown. Done by switching you to team 3 while shielding. TODO: surrender pose, dragging tied hostages around
+- [x] Human shield (v0.7: equip the ballistic shield next to a civilian; upright hostage pose, attached in front; v0.6 had F6): grab a civilian within 3 m, they're pinned in front of you and SWAT hold fire for `ShieldSeconds`, then a cooldown. Done by switching you to team 3 while shielding. TODO: surrender pose, dragging tied hostages around
 - [ ] Booby-trap civilians (bomb vest; `bAllowExplosiveVestSpawn` exists)
 - [x] AI suspect helpers (v0.6, `Helpers`): squad members kept and dressed as suspects; they follow you and fight the SWAT. Verified: helpers killed 3 SWAT in 25 s.
 - [ ] Secretly recruit civilians and arm them (civilian AI won't fight, so a likely route is to swap a civilian for a helper)
