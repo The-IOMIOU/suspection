@@ -3,7 +3,7 @@
 **Hold the building while the AI comes for you, in Ready or Not.** You get a setup phase, then armed enemies are sent in waves until you survive the timer, kill enough of them, or go down.
 It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip.
 
-> Status: **v0.7 is released**: the ballistic shield is now a person (no hotkey), SWAT objectives and report prompts are gone. v0.6 added AI suspect helpers and protect-the-VIP. Before that, v0.5: suspect look editor (F9/F10/F11), no reporting, plus everything from v0.4 (presets, eliminate mode, SWAT voices, aim slider, players dressed as suspects).
+> Status: **v0.8 is released**: in-game settings menu (F8 + chat), armoured SWAT, no AI squad, win when the SWAT team is down. Before that, v0.7: the ballistic shield is now a person (no hotkey), SWAT objectives and report prompts are gone. v0.6 added AI suspect helpers and protect-the-VIP. Before that, v0.5: suspect look editor (F9/F10/F11), no reporting, plus everything from v0.4 (presets, eliminate mode, SWAT voices, aim slider, players dressed as suspects).
 > Tested solo on one map only. Co-op is untested. See [docs/HANDOFF.md](docs/HANDOFF.md) for exactly what is verified.
 > Built with AI (Claude Code). If you are taking over, human or agent, start at [docs/HANDOFF.md](docs/HANDOFF.md). The wish-list is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -11,14 +11,13 @@ It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip
 | Feature | Details |
 |---|---|
 | Enemies that shoot | `EnemyMode = "hunters"` (default): hostile AI from the map's own spawners is dropped 25-45 m from a player and attacks. Your AI squad is removed. |
-| Enemies look like SWAT | `DressEnemiesAsSwat`: every hostile AI wears a SWAT uniform and a masked SWAT head, on every player's screen. Under the hood they are the game's suspect AI, the only AI that shoots players. |
+| Enemies look like SWAT | SWAT uniform, masked helmet head, plate carrier and ballistic helmet on every enemy (v0.8). Your AI squad is deleted. |
 | Main mode + presets | `Preset = "standard"`: one SWAT team (6 + 2 per player) breaches, eliminate them all. Also `easy`, `hardcore`, `survival` (timer + waves) and `custom` (config.lua as written). |
 | SWAT voices and aim | `SwatVoices`: enemies use the SWAT squad's voice lines. `EnemyAccuracy` (0..1, standard 0.55) nerfs their aim. |
 | You look like a suspect | `DressPlayersAsSuspects`: your SWAT outfit parts and helmet are hidden and you wear a real suspect body and head, captured from the map's suspects and saved in `looks.txt`. Armour stays on top (`DressKeepArmor`). `SuspectLook = n` picks a fixed look. |
 | Look editor | **F9** / Shift+F9: next/previous suspect body. **F10** / Shift+F10: head. **F11**: extras (none, armour, helmet, both). Saved in `mylook.txt`, and sent to the other players through a `#look` chat line so they see you the same way. Looks come from suspects you have met (`looks.txt`). |
 | No reporting | `NoReporting`: suspects don't call TOC. No "Report" prompt on bodies, arrests or props, and the map's SWAT objectives (report the manager, rescue civilians, ...) are hidden and can't end the mission. |
 | Human shield | Equip your **ballistic shield** within 3 m of a civilian: the shield is swapped for that person. They stand upright in front of you, hands up, in the game's own hostage animation, and SWAT hold fire for `ShieldSeconds` (20). Switch to any other item to let go. `ShieldCooldown` (30) between grabs. Without a civilian nearby it's a normal shield. |
-| AI helpers | `Helpers` (standard 2): squad members kept as suspects in suspect clothes. They follow you and fight the SWAT. |
 | Protect the VIP | `ProtectVIP`: at the breach a civilian near you becomes the VIP. SWAT hunt them too, and you lose if they die. |
 | Breach grace | `BreachGrace` (default 10 s): enemies stay blind for a moment after the breach. |
 | Moved start | `SpawnAway`: you are moved away from the entry point when the mission starts. |
@@ -26,7 +25,8 @@ It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip
 | Waves | Enemies are topped up to `SwatBase + SwatPerPlayer * players` at the breach. Then `ReinforceWaves` waves of `ReinforceSize` arrive every `ReinforceEvery` seconds. |
 | Win and lose | `timer`: survive `SurviveSeconds`. `kills`: kill `KillTarget` enemies. Wiping them all out also wins. You lose when every player is down. |
 | Tougher players | Damage you take is divided by `SuspectHealthMult` (default 2.5). Stuns are cut short after `StunMaxSeconds`. |
-| Chat HUD | Countdown and status in the in-game chat. The host presses **F7** to toggle the mode and **F8** for status. |
+| Settings menu | **F8** (any player) shows every setting in chat. Change them by typing in chat: `!set EnemyAccuracy 0.4`, `!set SwatBase 8`, `!set ProtectVIP off`, `!preset hardcore`, `!menu`. The host's game applies it and saves it in `settings.txt`, so it sticks. Most values apply at the next mission. |
+| Chat HUD | Countdown and status in the in-game chat. The host's **F7** toggles the mode. |
 | Old team swap | `EnemyMode = "swat"` puts players on the suspect team, as in v0.1. The SWAT AI does not shoot players, so this mode has no real enemy. |
 
 It needs a mission that has AI spawners (any normal mission). All settings are in `config.lua`, each with a comment.

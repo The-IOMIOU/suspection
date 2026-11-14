@@ -10,7 +10,7 @@ return {
   DressKeepArmor   = true,   -- keep your chosen body armour visible on top of the suspect outfit
   SuspectLook      = 0,      -- 0 = a look picked from your name; 1..n = a fixed look from looks.txt (filled as you play)
   NoReporting      = true,   -- suspects never report to TOC: no "Report" prompt on bodies, props or arrests
-  Helpers          = 2,      -- AI suspects on your side (kept from the squad, dressed as suspects; they fight SWAT and follow you)
+  Helpers          = 0,      -- AI suspects on your side (kept from the squad, dressed as suspects; they fight SWAT and follow you)
   ProtectVIP       = true,   -- at the breach one civilian becomes the VIP: SWAT hunt them too, you lose if they die
   ShieldSeconds    = 20,     -- equip your ballistic shield next to a civilian (3 m): they become your shield instead; SWAT hold fire this long at most
   ShieldCooldown   = 30,     -- seconds before you can grab another hostage

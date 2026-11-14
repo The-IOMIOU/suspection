@@ -1,16 +1,16 @@
--- SUSPECT MODE v0.7 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
+-- SUSPECT MODE v0.8 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
-local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true,Helpers=2,ProtectVIP=true,ShieldSeconds=20,ShieldCooldown=30}
+local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true,Helpers=0,ProtectVIP=true,ShieldSeconds=20,ShieldCooldown=30}
 local okc, cfg = pcall(dofile, dir.."config.lua"); if not okc or type(cfg)~="table" then cfg = {Enabled=true,PrepSeconds=60,WinMode="timer",SurviveSeconds=600,KillTarget=4,SuspectHealthMult=2.5,StunResist=true,StunMaxSeconds=0.75,AnnounceEvery=60,SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,ToggleKey="F7",StatusKey="F8"} end
 for k,v in pairs(DEF) do if cfg[k]==nil then cfg[k]=v end end  -- old config.lua files keep working
 -- Presets: Preset = "standard" | "easy" | "hardcore" | "survival" | "custom". A preset overrides the matching
 -- config.lua values; "custom" uses config.lua exactly as written.
 local PRESETS = {
-  standard = {Helpers=2, WinMode="eliminate", SwatBase=6, SwatPerPlayer=2, ReinforceEvery=0, EnemyAccuracy=0.55, SuspectHealthMult=2.5, PrepSeconds=60, BreachGrace=10, SwatIntelEvery=30},
-  easy     = {Helpers=3, WinMode="eliminate", SwatBase=4, SwatPerPlayer=1, ReinforceEvery=0, EnemyAccuracy=0.35, SuspectHealthMult=4,   PrepSeconds=90, BreachGrace=15, SwatIntelEvery=45},
+  standard = {Helpers=0, WinMode="eliminate", SwatBase=6, SwatPerPlayer=2, ReinforceEvery=0, EnemyAccuracy=0.55, SuspectHealthMult=2.5, PrepSeconds=60, BreachGrace=10, SwatIntelEvery=30},
+  easy     = {Helpers=0, WinMode="eliminate", SwatBase=4, SwatPerPlayer=1, ReinforceEvery=0, EnemyAccuracy=0.35, SuspectHealthMult=4,   PrepSeconds=90, BreachGrace=15, SwatIntelEvery=45},
   hardcore = {Helpers=0, WinMode="eliminate", SwatBase=8, SwatPerPlayer=3, ReinforceEvery=150, ReinforceSize=3, ReinforceWaves=2, EnemyAccuracy=0.9, SuspectHealthMult=1.5, PrepSeconds=45, BreachGrace=5, SwatIntelEvery=20},
-  survival = {Helpers=2, WinMode="timer", SurviveSeconds=600, SwatBase=6, SwatPerPlayer=2, ReinforceEvery=120, ReinforceSize=2, ReinforceWaves=3, EnemyAccuracy=0.55, SuspectHealthMult=2.5, PrepSeconds=60},
+  survival = {Helpers=0, WinMode="timer", SurviveSeconds=600, SwatBase=6, SwatPerPlayer=2, ReinforceEvery=120, ReinforceSize=2, ReinforceWaves=3, EnemyAccuracy=0.55, SuspectHealthMult=2.5, PrepSeconds=60},
 }
 local pre = PRESETS[cfg.Preset or "standard"]
 if pre then for k,v in pairs(pre) do cfg[k] = v end end
@@ -122,6 +122,34 @@ local function applyMats(comp, paths)
 end
 
 local function nameHash(s) local h=0 for i=1,#s do h=(h*31+s:byte(i))%100003 end return h end
+-- Armoured, serious SWAT: a plate carrier and a ballistic helmet are added to every enemy as extra skeletal
+-- meshes that follow the body's animation (leader pose). Same meshes the players' own kit uses.
+local SWAT_GEAR = { CH.."SWAT_FRAS_Vest/SK_FRAS_Armor_Var01.SK_FRAS_Armor_Var01",
+                    CH.."SWAT_Mandible/SK_Helmet_Mandible_NoGoggles.SK_Helmet_Mandible_NoGoggles" }
+S.armoured = {}
+function armourUp(c)
+  local key = c:GetFullName(); if S.armoured[key] then return end
+  local skc = StaticFindObject("/Script/Engine.SkeletalMeshComponent")
+  local n = 0
+  if not S.gearFallback then  -- any loaded SWAT vest / helmet, if the preferred ones aren't in memory on this map
+    S.gearFallback = {}
+    for _,sm in ipairs(list("SkeletalMesh")) do local fn = sm:GetFullName()
+      if fn:find("/Character/SWAT/") then
+        if not S.gearFallback[1] and (fn:find("Armor") or fn:find("Vest")) then S.gearFallback[1] = sm end
+        if not S.gearFallback[2] and fn:find("Helmet") and not fn:find("Head") then S.gearFallback[2] = sm end
+      end end
+  end
+  for gi,path in ipairs(SWAT_GEAR) do local m = asset(path, true) or S.gearFallback[gi]
+    if m then local comp = c:AddComponentByClass(skc, false, {Translation={X=0,Y=0,Z=0}, Rotation={X=0,Y=0,Z=0,W=1}, Scale3D={X=1,Y=1,Z=1}}, false)
+      if valid(comp) then
+        pcall(function() comp:K2_AttachToComponent(c.Mesh, FName("None"), 2, 2, 2, false) end)
+        pcall(function() comp:SetSkeletalMeshAsset(m) end)
+        pcall(function() comp:SetLeaderPoseComponent(c.Mesh, false, false) end)
+        pcall(function() comp:SetMasterPoseComponent(c.Mesh, false) end)
+        n = n + 1 end end end
+  S.armoured[key] = n > 0
+end
+
 local SWAT_VOICES = {"SWATSwan","SWATKing","SWATPrescott","SWATEli","SWATJudge"}
 local function nerfAim(c)
   if not cfg.EnemyAccuracy then return end
@@ -143,6 +171,7 @@ local function dressHunters()
       local n = (#key % 2) + 1  -- stable per pawn
       setMesh(c.Mesh, asset(SWAT_BODIES[n]))
       setMesh(c.FaceMesh, asset(SWAT_HEADS[n]))
+      pcall(armourUp, c)
       if cfg.SwatVoices ~= false then pcall(function() c.SpeechCharacterName = SWAT_VOICES[(nameHash(key) % #SWAT_VOICES) + 1] end) end
       S.dressed[key] = (S.dressed[key] or 0) + 1
     end
@@ -263,8 +292,9 @@ local function dressPlayers()
   end end
 end
 
-local function swatAlive() local n=0 for _,c in ipairs(enemies()) do if not c:IsHealthDepleted() then n=n+1 end end return n end
-local function swatDead() local n=0 for _,c in ipairs(enemies()) do if c:IsHealthDepleted() then n=n+1 end end return n end
+local function isDown(c) local d = false pcall(function() d = c:IsHealthDepleted() or c.bArrestComplete or c.bSurrenderComplete end) return d end
+local function swatAlive() local n=0 for _,c in ipairs(enemies()) do if not isDown(c) then n=n+1 end end return n end
+local function swatDead() local n=0 for _,c in ipairs(enemies()) do if isDown(c) then n=n+1 end end return n end
 
 local function players() return #playerChars() end
 local function playersAlive() local n=0 for _,c in ipairs(playerChars()) do if not c:IsHealthDepleted() then n=n+1 end end return n end
@@ -667,6 +697,55 @@ local function vipIntel()
     if i % 2 == 0 then pcall(function() c.Controller.TargetingComponent:AddKnownEnemy(S.vip, true) end) end end end
 end
 
+-- ===== SETTINGS MENU (chat) ================================================================================
+local SETTINGS_FILE = dir.."settings.txt"
+local MENU_KEYS = {"Preset","WinMode","SwatBase","SwatPerPlayer","EnemyAccuracy","SuspectHealthMult","PrepSeconds",
+  "SurviveSeconds","KillTarget","ReinforceEvery","ReinforceSize","ReinforceWaves","BreachGrace","ProtectVIP",
+  "ShieldSeconds","ShieldCooldown","StunResist","SwatVoices","DressPlayersAsSuspects","DressEnemiesAsSwat","NoReporting"}
+local function parseVal(v)
+  if v == "true" or v == "on" then return true elseif v == "false" or v == "off" then return false end
+  return tonumber(v) or v
+end
+local function saveSettings()
+  local f = io.open(SETTINGS_FILE, "w"); if not f then return end
+  for _,k in ipairs(MENU_KEYS) do f:write(k.."="..tostring(cfg[k]).."\n") end f:close()
+end
+local function applyPreset(name)
+  local pr = PRESETS[name]; cfg.Preset = name
+  if pr then for k,v in pairs(pr) do cfg[k] = v end end
+end
+do local f = io.open(SETTINGS_FILE, "r")  -- saved menu choices win over config.lua and the preset
+  if f then for line in f:lines() do local k, v = line:match("^(%w+)=(.*)$")
+      if k == "Preset" then applyPreset(v) elseif k then cfg[k] = parseVal(v) end end f:close() end end
+local function showMenu()
+  local parts = {}
+  for _,k in ipairs(MENU_KEYS) do parts[#parts+1] = k.."="..tostring(cfg[k]) end
+  chat("SETTINGS (type in chat):  !set <name> <value>   !preset standard|easy|hardcore|survival|custom   !menu")
+  for i = 1, #parts, 5 do chat(table.concat(parts, "  ", i, math.min(i+4, #parts))) end
+end
+S.chatIdx = 0
+local function hostReadSettings()
+  local gs = FindFirstOf("ReadyOrNotGameState"); if not valid(gs) then return end
+  if S.menuGS ~= gs:GetFullName() then S.menuGS = gs:GetFullName(); S.chatIdx = #gs.SavedChatMessages end  -- new map: skip old lines
+  local arr = gs.SavedChatMessages
+  if #arr < S.chatIdx then S.chatIdx = 0 end
+  for i = S.chatIdx + 1, #arr do
+    local msg = arr[i].Message:ToString(); local who = arr[i].SenderName:ToString()
+    if who ~= "SUSPECT MODE" and who ~= "LOOK" then
+      local k, v = msg:match("^!set%s+(%w+)%s+(%S+)")
+      local pr = msg:match("^!preset%s+(%w+)")
+      if k then
+        local real = nil for _,mk in ipairs(MENU_KEYS) do if mk:lower() == k:lower() then real = mk end end
+        if real == "Preset" then pr = v elseif real then cfg[real] = parseVal(v); saveSettings(); chat(who.." set "..real.." = "..tostring(cfg[real]).." (saved)")
+        else chat("Unknown setting '"..k.."'. Type !menu for the list.") end
+      end
+      if pr then if PRESETS[pr] or pr == "custom" then applyPreset(pr); saveSettings(); chat(who.." picked preset "..pr.." (saved)") else chat("Presets: standard, easy, hardcore, survival, custom") end end
+      if msg:match("^!menu") then showMenu() end
+    end
+  end
+  S.chatIdx = #arr
+end
+
 local function win(reason)
   S.done = true; S.phase = "won"
   chat("SUSPECTS WIN - "..reason.."  (remaining SWAT stand down)")
@@ -725,6 +804,7 @@ LoopAsync(500, function() ExecuteInGameThread(function()
   if cfg.NoReporting ~= false and isHost() then ok,e=pcall(noReports) if not ok then log("noReports error: "..tostring(e)) end end
   pcall(readChatLooks)
   if my.body and (not S.lastLookSent or os.time() - S.lastLookSent > 60) and inMission() then sendLook() end  -- late joiners
+  if isHost() then pcall(hostReadSettings) end
   if isHost() then pcall(hostReadCmds) pcall(dressHelpers) if inMission() then pcall(shieldTrigger) end end
   if cfg.NoReporting ~= false then pcall(hideObjectives) end
   pcall(shieldVisuals)
@@ -737,8 +817,11 @@ RegisterKeyBind(key(cfg.ToggleKey), function() ExecuteInGameThread(function()
   cfg.Enabled = not cfg.Enabled; if not cfg.Enabled then for _,c in ipairs(list("PlayerCharacter")) do pcall(function() c.bGodMode=false end) end end
   S.map=nil; chat("Suspect Mode "..(cfg.Enabled and "ON (restarts setup timer)" or "OFF")) end) end)
 RegisterKeyBind(key(cfg.StatusKey), function() ExecuteInGameThread(function()
-  chat(("phase=%s  SWAT alive=%d dead=%d  mode=%s"):format(S.phase, swatAlive(), swatDead(), cfg.WinMode)) end) end)
-log("v0.7 loaded")
+  if isHost() then
+    chat(("phase=%s  SWAT alive=%d down=%d  mode=%s"):format(S.phase, swatAlive(), swatDead(), cfg.WinMode)); showMenu()
+  else local pc = localPC() if pc then pcall(function() pc:Server_SendChatMessage({SenderName=localName(), SenderPlayerState=pc.PlayerState, Message="!menu"}) end) end end
+end) end)
+log("v0.8 loaded")
 RegisterKeyBind(Key.F9, function() ExecuteInGameThread(function() cycle("body", 1) end) end)
 RegisterKeyBind(Key.F9, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("body", -1) end) end)
 RegisterKeyBind(Key.F10, function() ExecuteInGameThread(function() cycle("head", 1) end) end)
