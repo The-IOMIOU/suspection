@@ -1,7 +1,7 @@
--- SUSPECT MODE v0.2 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
+-- SUSPECT MODE v0.3 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
-local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500}
+local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true}
 local okc, cfg = pcall(dofile, dir.."config.lua"); if not okc or type(cfg)~="table" then cfg = {Enabled=true,PrepSeconds=60,WinMode="timer",SurviveSeconds=600,KillTarget=4,SuspectHealthMult=2.5,StunResist=true,StunMaxSeconds=0.75,AnnounceEvery=60,SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,ToggleKey="F7",StatusKey="F8"} end
 for k,v in pairs(DEF) do if cfg[k]==nil then cfg[k]=v end end  -- old config.lua files keep working
 local TT_SUSPECT, TT_SWAT = 3, 1
@@ -48,6 +48,41 @@ local function enemies()
   if not hunters() then return swatChars() end
   local r={} for _,c in ipairs(list("SuspectCharacter")) do if valid(c) then r[#r+1]=c end end return r
 end
+-- Hunters mode: every hostile AI is suspect AI under the hood (the only AI that shoots players), so it is dressed
+-- as SWAT: SWAT uniform body + masked SWAT head, with the SWAT mesh's own materials (the suspect's material
+-- overrides would otherwise paint the uniform as a jacket). Cosmetic and local, so it runs on host AND clients.
+local CH = "/Game/ReadyOrNot/Character/SWAT/"
+local SWAT_BODIES = { CH.."SWAT_Officer/Uniform_Heavy/SK_SWAT_U_Heavy_01.SK_SWAT_U_Heavy_01", CH.."SWAT_Officer/Uniform_Light/SK_SWAT_U_Light_01.SK_SWAT_U_Light_01" }
+local SWAT_HEADS  = { CH.."Heads/Swan/Meshes/head_swan_masked_LOD0_opt.head_swan_masked_LOD0_opt", CH.."Heads/Judge/Meshes/SK_SWAT_Head_Judge_Helmet_Masked_opt.SK_SWAT_Head_Judge_Helmet_Masked_opt" }
+local function asset(path)
+  local a = StaticFindObject(path)
+  if not valid(a) then pcall(function() LoadAsset(path:gsub("%.[^.]+$","")) end) a = StaticFindObject(path) end
+  return valid(a) and a or nil
+end
+local function setMesh(comp, mesh)
+  if not (valid(comp) and mesh) then return false end
+  local ok = pcall(function() comp:SetSkeletalMeshAsset(mesh) end)
+  if not ok then ok = pcall(function() comp:SetSkeletalMesh(mesh, false) end) end
+  if ok then pcall(function() local mats = mesh.Materials for i=1,#mats do comp:SetMaterial(i-1, mats[i].MaterialInterface) end end) end
+  return ok
+end
+S.dressed = {}
+local function dressHunters()
+  if not cfg.Enabled or cfg.EnemyMode == "swat" or cfg.DressEnemiesAsSwat == false then return end
+  -- Checked every tick, not once: the game applies the suspect's own look (async, after spawn / on replication)
+  -- and that would silently undo an early dress.
+  for _,c in ipairs(list("SuspectCharacter")) do if valid(c) then
+    local cur = ""; pcall(function() cur = c.Mesh.SkeletalMesh:GetFName():ToString() end)
+    if not cur:find("SWAT") then
+      local key = c:GetFullName()
+      local n = (#key % 2) + 1  -- stable per pawn
+      setMesh(c.Mesh, asset(SWAT_BODIES[n]))
+      setMesh(c.FaceMesh, asset(SWAT_HEADS[n]))
+      S.dressed[key] = (S.dressed[key] or 0) + 1
+    end
+  end end
+end
+
 local function swatAlive() local n=0 for _,c in ipairs(enemies()) do if not c:IsHealthDepleted() then n=n+1 end end return n end
 local function swatDead() local n=0 for _,c in ipairs(enemies()) do if c:IsHealthDepleted() then n=n+1 end end return n end
 
@@ -241,7 +276,8 @@ local function makeSuspects(prep)
       end)
     end
   end end
-  for _,c in ipairs(enemies()) do pcall(function() c.Controller.bDisableSensePerception = prep and true or false end) end
+  local blind = prep or (S.graceEnd and os.time() < S.graceEnd)  -- setup time, then a short grace after the breach
+  for _,c in ipairs(enemies()) do pcall(function() c.Controller.bDisableSensePerception = blind and true or false end) end
 end
 
 local function fmt(s) s=math.max(0,math.floor(s)) return string.format("%d:%02d", s//60, s%60) end
@@ -262,12 +298,12 @@ local function tick()
   local map = inMission()
   if not map then S.map=nil S.phase="idle" return end
   if map ~= S.map then -- new mission
-    S.map=map S.phase="prep" S.done=false S.limbs={} S.anchor=nil S.waves=0 S.moved={} S.squadGone=false S.t0=os.time() S.prepEnd=S.t0+cfg.PrepSeconds S.lastAnn=0
+    S.map=map S.phase="prep" S.done=false S.limbs={} S.anchor=nil S.waves=0 S.moved={} S.squadGone=false S.graceEnd=nil S.dressed={} S.t0=os.time() S.prepEnd=S.t0+cfg.PrepSeconds S.lastAnn=0
     chat(("You are the SUSPECTS. %ds to set up - SWAT AI hunts you after that. Goal: %s"):format(cfg.PrepSeconds,
       cfg.WinMode=="kills" and ("kill "..cfg.KillTarget.." SWAT") or ("survive "..fmt(cfg.SurviveSeconds))))
   end
   local now = os.time()
-  if S.phase=="prep" and now >= S.prepEnd then S.phase="live" S.liveStart=now S.lastAnn=now S.lastWave=now S.lastIntel=now
+  if S.phase=="prep" and now >= S.prepEnd then S.phase="live" S.liveStart=now S.lastAnn=now S.lastWave=now S.lastIntel=now S.graceEnd=now+cfg.BreachGrace
     local need = swatTarget() - swatAlive()
     if hunters() then spawnHunters(need) else spawnSwat(need) end  -- top the map's squad up to SwatBase + SwatPerPlayer * players
     if cfg.SwatIntelEvery > 0 then swatIntel() end
@@ -296,7 +332,10 @@ local function tick()
   elseif S.phase=="prep" and now - S.lastAnn >= 15 then S.lastAnn=now chat("Setup time: "..fmt(S.prepEnd-now)) end
 end
 
-LoopAsync(500, function() ExecuteInGameThread(function() local ok,e=pcall(tick) if not ok then log("tick error: "..tostring(e)) end end) return false end)
+LoopAsync(500, function() ExecuteInGameThread(function()
+  local ok,e=pcall(tick) if not ok then log("tick error: "..tostring(e)) end
+  ok,e=pcall(dressHunters) if not ok then log("dress error: "..tostring(e)) end  -- every machine, not just the host
+end) return false end)
 
 local function key(name) return Key[name] or Key.F7 end
 RegisterKeyBind(key(cfg.ToggleKey), function() ExecuteInGameThread(function()
@@ -304,4 +343,4 @@ RegisterKeyBind(key(cfg.ToggleKey), function() ExecuteInGameThread(function()
   S.map=nil; chat("Suspect Mode "..(cfg.Enabled and "ON (restarts setup timer)" or "OFF")) end) end)
 RegisterKeyBind(key(cfg.StatusKey), function() ExecuteInGameThread(function()
   chat(("phase=%s  SWAT alive=%d dead=%d  mode=%s"):format(S.phase, swatAlive(), swatDead(), cfg.WinMode)) end) end)
-log("v0.2 loaded")
+log("v0.3 loaded")

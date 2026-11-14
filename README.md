@@ -3,14 +3,16 @@
 **Hold the building while the AI comes for you, in Ready or Not.** You get a setup phase, then armed enemies are sent in waves until you survive the timer, kill enough of them, or go down.
 It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip.
 
-> Status: **v0.1 is released. `main` is ahead of it** (enemies that shoot, waves, moved start) and has no release zip yet.
+> Status: **v0.3 is released** (enemies dressed as SWAT, waves, moved start, breach grace).
 > Tested solo on one map only. Co-op is untested. See [docs/HANDOFF.md](docs/HANDOFF.md) for exactly what is verified.
 > Built with AI (Claude Code). If you are taking over, human or agent, start at [docs/HANDOFF.md](docs/HANDOFF.md). The wish-list is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## What it does on `main`
 | Feature | Details |
 |---|---|
-| Enemies that shoot | `EnemyMode = "hunters"` (default): hostile AI from the map's own spawners is dropped 25-45 m from a player and attacks. Your AI squad is removed. They still look like suspects, not SWAT. |
+| Enemies that shoot | `EnemyMode = "hunters"` (default): hostile AI from the map's own spawners is dropped 25-45 m from a player and attacks. Your AI squad is removed. |
+| Enemies look like SWAT | `DressEnemiesAsSwat`: every hostile AI wears a SWAT uniform and a masked SWAT head, on every player's screen. Under the hood they are the game's suspect AI, the only AI that shoots players. |
+| Breach grace | `BreachGrace` (default 10 s): enemies stay blind for a moment after the breach. |
 | Moved start | `SpawnAway`: you are moved away from the entry point when the mission starts. |
 | Setup phase | `PrepSeconds` (default 60): you can't be hurt and the enemies are blind. |
 | Waves | Enemies are topped up to `SwatBase + SwatPerPlayer * players` at the breach. Then `ReinforceWaves` waves of `ReinforceSize` arrive every `ReinforceEvery` seconds. |
@@ -22,7 +24,7 @@ It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip
 It needs a mission that has AI spawners (any normal mission). All settings are in `config.lua`, each with a comment.
 
 ## Install (every player)
-1. Download the latest `SuspectMode_*.zip` from [Releases](../../releases) and unzip it. The newest release is v0.1 and does not have the features above yet. To try `main`, build the zip with `tools/build_dist.sh`.
+1. Download the latest `SuspectMode_*.zip` from [Releases](../../releases) and unzip it. To try unreleased `main`, build the zip with `tools/build_dist.sh`.
 2. Double-click `install.bat`. It finds the game folder or asks for it, then copies UE4SS and the mod into `ReadyOrNot\Binaries\Win64`.
 3. Host co-op as usual. The **host's** `ue4ss\Mods\RonSuspect\Scripts\config.lua` is the one that counts.
 

@@ -5,6 +5,8 @@ return {
                              -- "swat": old team swap; the SWAT AI stands around and never shoots players
   HunterDropMin    = 2500,   -- hunters are dropped this far from a player at least (cm; 2500 = 25 m) ...
   HunterDropMax    = 4500,   -- ... and this far at most; hunters further than 1.5x this are brought back every SwatIntelEvery
+  DressEnemiesAsSwat = true,  -- hostile AI wears SWAT uniforms + masked SWAT heads (every player should keep this on)
+  BreachGrace      = 10,     -- seconds the SWAT stay blind after the breach so nobody dies before they can react
   SpawnAway        = true,   -- move players away from the SWAT entry point when the mission starts
   PrepSeconds      = 60,     -- trap/setup time at mission start: you can't be hurt, SWAT AI is blind
   WinMode          = "timer",-- "timer" = survive SurviveSeconds, "kills" = kill KillTarget SWAT

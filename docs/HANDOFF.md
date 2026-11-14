@@ -5,9 +5,9 @@ For whoever picks this up next, human or AI agent. Last updated 2026-11-13.
 ## Where the project stands
 - **Goal:** a "Suspect Mode" for Ready or Not that is as big as the normal mode: the players hold a building and the AI comes for them, in Steam co-op. The full wish-list is in [ROADMAP.md](ROADMAP.md).
 - **What works on `main`:** enemies that really shoot (`EnemyMode = "hunters"`), a setup phase, players moved away from the entry point, enemy top-up and reinforcement waves, win and lose conditions, chat HUD.
-- **Released:** only v0.1 (the old team swap). Everything after that is on `main` and has no release zip yet.
+- **Released:** v0.3 (2026-11-14): everything below, plus enemies dressed as SWAT and the breach grace.
 - **Biggest open problems**, in order:
-  1. The enemies look like suspects, not SWAT, and the chat still says "SWAT" and "SUSPECTS".
+  1. ~~Enemies look like suspects~~ fixed in v0.3 (`dressHunters`). Still open: the player model and the pre-mission lobby/briefing show SWAT.
   2. Enemies are teleported near the players. They do not walk in from the entry point.
   3. Nothing is tested in co-op, and only one map is tested.
   4. Balance: an idle player died 4 s after the breach.
@@ -16,6 +16,9 @@ For whoever picks this up next, human or AI agent. Last updated 2026-11-13.
 - **The SWAT AI never fights players.** It is the player's command squad. It stays that way after `PlayerState.Team` is set to suspect, after `TargetingComponent:AddKnownEnemy`, and when the player shoots it (tested by a human).
 - **Suspect AI fights SWAT-team players by itself**, but only when the game spawned it. Suspects spawned by hand (`SpawnAIFromClass`, or deferred spawn with `Archetype` set) crashed the game on contact, 3 times out of 3.
 - So the working design keeps the players on their normal team and uses suspect AI from the map's own `AISpawn` actors as the enemy. `EnemyMode = "swat"` keeps the original team swap, but nobody shoots in it.
+- **How suspect AI picks enemies (tested 2026-11-14):** only by the *target's* team. A target on team 1 or 2 (SWAT) is an enemy, a target on team 3 is a friend, and the AI's own team (pawn `DefaultTeam`, controller `GetTeam`, re-possess) changes nothing. So all suspect AI share one rule. You cannot have friendly suspects and hostile suspects at the same time, and a player on team 3 is safe from every suspect.
+- **So every hostile AI is dressed as SWAT** (`dressHunters`, v0.3): `Mesh` → `SK_SWAT_U_Heavy_01` / `SK_SWAT_U_Light_01`, `FaceMesh` → masked SWAT head, then `SetMaterial(i, mesh.Materials[i].MaterialInterface)`. Without the material reset the suspect's overrides paint the uniform as a jacket. It's cosmetic and local, so it runs on every machine, not just the host. Users had reported "I get shot by SWAT *and* suspects"; they were all the same suspect AI.
+- **Not fixed:** the pre-mission lobby / briefing / loading scenes still show the SWAT squad, and the player model is still a SWAT officer (to a friend in co-op). Ideas: player 3P mesh = `CharacterMesh0` (`SK_Player_NoMesh_Base`) plus ~15 `SkeletalMesh_CSK_*` customization parts and `*VisualizationComponent`s. Hide those and set a suspect body/head the same way as `dressHunters`. Leave the `*1P*` components alone.
 
 ## How the mod works (`mod/RonSuspect/Scripts/main.lua`)
 All logic runs on the host only (`FindFirstOf("ReadyOrNotGameMode")` is valid there). One `tick()` every 500 ms.
