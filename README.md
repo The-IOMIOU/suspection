@@ -3,7 +3,7 @@
 **Hold the building while the AI comes for you, in Ready or Not.** You get a setup phase, then armed enemies are sent in waves until you survive the timer, kill enough of them, or go down.
 It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip.
 
-> Status: **v0.8 is released**: in-game settings menu (F8 + chat), armoured SWAT, no AI squad, win when the SWAT team is down. Before that, v0.7: the ballistic shield is now a person (no hotkey), SWAT objectives and report prompts are gone. v0.6 added AI suspect helpers and protect-the-VIP. Before that, v0.5: suspect look editor (F9/F10/F11), no reporting, plus everything from v0.4 (presets, eliminate mode, SWAT voices, aim slider, players dressed as suspects).
+> Status: **v0.9 is released**: on-screen settings menu (F8). Before that, v0.8: in-game settings menu (F8 + chat), armoured SWAT, no AI squad, win when the SWAT team is down. Before that, v0.7: the ballistic shield is now a person (no hotkey), SWAT objectives and report prompts are gone. v0.6 added AI suspect helpers and protect-the-VIP. Before that, v0.5: suspect look editor (F9/F10/F11), no reporting, plus everything from v0.4 (presets, eliminate mode, SWAT voices, aim slider, players dressed as suspects).
 > Tested solo on one map only. Co-op is untested. See [docs/HANDOFF.md](docs/HANDOFF.md) for exactly what is verified.
 > Built with AI (Claude Code). If you are taking over, human or agent, start at [docs/HANDOFF.md](docs/HANDOFF.md). The wish-list is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -25,7 +25,7 @@ It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip
 | Waves | Enemies are topped up to `SwatBase + SwatPerPlayer * players` at the breach. Then `ReinforceWaves` waves of `ReinforceSize` arrive every `ReinforceEvery` seconds. |
 | Win and lose | `timer`: survive `SurviveSeconds`. `kills`: kill `KillTarget` enemies. Wiping them all out also wins. You lose when every player is down. |
 | Tougher players | Damage you take is divided by `SuspectHealthMult` (default 2.5). Stuns are cut short after `StunMaxSeconds`. |
-| Settings menu | **F8** (any player) shows every setting in chat. Change them by typing in chat: `!set EnemyAccuracy 0.4`, `!set SwatBase 8`, `!set ProtectVIP off`, `!preset hardcore`, `!menu`. The host's game applies it and saves it in `settings.txt`, so it sticks. Most values apply at the next mission. |
+| Settings menu | **F8** opens an on-screen menu (any player). **Up/Down** picks a setting, **Left/Right** changes it, **F8** closes. The host's game saves it (`settings.txt`); a friend's change is sent to the host. Chat still works too: `!set EnemyAccuracy 0.4`, `!preset hardcore`, `!menu`. |
 | Chat HUD | Countdown and status in the in-game chat. The host's **F7** toggles the mode. |
 | Old team swap | `EnemyMode = "swat"` puts players on the suspect team, as in v0.1. The SWAT AI does not shoot players, so this mode has no real enemy. |
 

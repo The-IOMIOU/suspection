@@ -1,4 +1,4 @@
--- SUSPECT MODE v0.8 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
+-- SUSPECT MODE v0.9 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
 local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true,Helpers=0,ProtectVIP=true,ShieldSeconds=20,ShieldCooldown=30}
@@ -44,6 +44,7 @@ local function inMission()
   local n = w:GetFullName(); if n:find("/Menu/") or n:find("PreMission") then return nil end
   -- Key the mission on the GameMode instance, not the map name: replaying the same map is a new mission.
   local gm = FindFirstOf("ReadyOrNotGameMode"); if valid(gm) then n = gm:GetFullName() end
+  if n:find("GM_Lobby") or n:find("Lobby_C") then return nil end  -- the police-station hub is not a mission
   if n ~= S.map and #playerChars() == 0 then return nil end  -- wait for the first real spawn; after that the map stays "in mission"
   return n
 end
@@ -720,7 +721,7 @@ do local f = io.open(SETTINGS_FILE, "r")  -- saved menu choices win over config.
 local function showMenu()
   local parts = {}
   for _,k in ipairs(MENU_KEYS) do parts[#parts+1] = k.."="..tostring(cfg[k]) end
-  chat("SETTINGS (type in chat):  !set <name> <value>   !preset standard|easy|hardcore|survival|custom   !menu")
+  chat("SETTINGS: press F8 for the menu, or type in chat:  !set [name] [value]   !preset standard / easy / hardcore / survival / custom   !menu")
   for i = 1, #parts, 5 do chat(table.concat(parts, "  ", i, math.min(i+4, #parts))) end
 end
 S.chatIdx = 0
@@ -745,6 +746,100 @@ local function hostReadSettings()
   end
   S.chatIdx = #arr
 end
+
+-- ===== ON-SCREEN MENU (F8) ===================================================================================
+-- Built at runtime from UMG widgets. Up/Down = pick, Left/Right = change, F8 = close. The host changes settings
+-- directly (saved to settings.txt); a client's change is sent to the host as a "!set" chat line.
+local ROWS = {
+  {"Preset", "Preset", {"standard","easy","hardcore","survival","custom"}},
+  {"WinMode", "Win condition", {"eliminate","timer","kills"}},
+  {"SwatBase", "SWAT team size", 1, 0, 30},
+  {"SwatPerPlayer", "Extra SWAT per player", 1, 0, 10},
+  {"EnemyAccuracy", "SWAT aim (0-1)", 0.05, 0.05, 1},
+  {"SuspectHealthMult", "Your toughness (x)", 0.5, 0.5, 10},
+  {"PrepSeconds", "Setup time (s)", 15, 0, 600},
+  {"BreachGrace", "Breach grace (s)", 5, 0, 60},
+  {"SurviveSeconds", "Survive timer (s)", 60, 60, 3600},
+  {"KillTarget", "Kill target", 1, 1, 50},
+  {"ReinforceEvery", "Reinforcements every (s, 0=off)", 30, 0, 600},
+  {"ReinforceSize", "SWAT per wave", 1, 1, 10},
+  {"ReinforceWaves", "Waves", 1, 0, 10},
+  {"ProtectVIP", "Protect a VIP", "bool"},
+  {"ShieldSeconds", "Human shield hold (s)", 5, 5, 120},
+  {"ShieldCooldown", "Human shield cooldown (s)", 5, 0, 300},
+  {"StunResist", "Flash/stun resistance", "bool"},
+  {"SwatVoices", "SWAT voices", "bool"},
+  {"DressPlayersAsSuspects", "You look like suspects", "bool"},
+  {"DressEnemiesAsSwat", "Enemies look like SWAT", "bool"},
+  {"NoReporting", "No reporting / SWAT objectives", "bool"},
+}
+local M = { w = nil, open = false, sel = 1, vals = {}, labels = {}, head = nil }
+local function fmtVal(v) if type(v) == "boolean" then return v and "ON" or "OFF" end if type(v) == "number" then return (math.floor(v) == v) and tostring(math.floor(v)) or string.format("%.2f", v) end return tostring(v) end
+local function C(r,g,b,a) return {SpecifiedColor={R=r,G=g,B=b,A=a or 1}, ColorUseRule=0} end
+local function menuRefresh()
+  if not M.w then return end
+  for i,row in ipairs(ROWS) do local on = i == M.sel
+    pcall(function()
+      M.labels[i]:SetText(FText((on and "> " or "   ")..row[2]))
+      M.labels[i]:SetColorAndOpacity(on and C(1,0.8,0.2) or C(0.85,0.85,0.85))
+      M.vals[i]:SetText(FText(on and ("<  "..fmtVal(cfg[row[1]]).."  >") or fmtVal(cfg[row[1]])))
+      M.vals[i]:SetColorAndOpacity(on and C(1,0.8,0.2) or C(0.55,0.85,1))
+    end)
+  end
+  pcall(function() M.head:SetText(FText(("phase: %s    SWAT alive: %d    down: %d    %s"):format(S.phase, swatAlive(), swatDead(), isHost() and "you are HOST" or "host decides"))) end)
+end
+local function menuBuild()
+  local pc = localPC(); if not pc then return false end
+  local w = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary"):Create(pc, StaticFindObject("/Script/UMG.UserWidget"), pc)
+  if not valid(w) then return false end
+  local function new(cls, outer) return StaticConstructObject(StaticFindObject("/Script/UMG."..cls), outer or w.WidgetTree) end
+  w.WidgetTree = StaticConstructObject(StaticFindObject("/Script/UMG.WidgetTree"), w)
+  local canvas = new("CanvasPanel"); w.WidgetTree.RootWidget = canvas
+  local border = new("Border"); border:SetBrushColor({R=0.01,G=0.01,B=0.015,A=0.9}); pcall(function() border:SetPadding({Left=28,Top=20,Right=28,Bottom=20}) end)
+  local slot = canvas:AddChildToCanvas(border); slot:SetPosition({X=70, Y=90}); slot:SetSize({X=760, Y=700})
+  local vb = new("VerticalBox"); border:SetContent(vb)
+  local function text(str, col, size)
+    local t = new("TextBlock"); t:SetText(FText(str)); t:SetColorAndOpacity(col)
+    pcall(function() local f = t.Font f.Size = size t:SetFont(f) end) return t
+  end
+  vb:AddChildToVerticalBox(text("SUSPECT MODE", C(1,0.28,0.18), 30))
+  M.head = text("", C(0.6,0.6,0.6), 14); vb:AddChildToVerticalBox(M.head)
+  vb:AddChildToVerticalBox(text(" ", C(1,1,1), 8))
+  for i,row in ipairs(ROWS) do
+    local hb = new("HorizontalBox")
+    local sz = new("SizeBox"); pcall(function() sz:SetWidthOverride(430) end)
+    M.labels[i] = text(row[2], C(0.85,0.85,0.85), 17); sz:SetContent(M.labels[i])
+    hb:AddChildToHorizontalBox(sz)
+    M.vals[i] = text("", C(0.55,0.85,1), 17); hb:AddChildToHorizontalBox(M.vals[i])
+    vb:AddChildToVerticalBox(hb)
+  end
+  vb:AddChildToVerticalBox(text(" ", C(1,1,1), 8))
+  vb:AddChildToVerticalBox(text("Up / Down: pick    Left / Right: change    F8: close", C(0.6,0.6,0.6), 14))
+  vb:AddChildToVerticalBox(text("Saved on the host. Team size, timers and presets apply from the next mission.", C(0.45,0.45,0.45), 12))
+  M.w = w; return true
+end
+local function menuToggle()
+  if M.open then pcall(function() M.w:RemoveFromParent() end) M.open = false return end
+  if not (M.w and valid(M.w)) then M.w = nil; if not menuBuild() then return end end
+  pcall(function() M.w:AddToViewport(500) end); M.open = true; menuRefresh()
+end
+local function menuChange(dir)
+  local row = ROWS[M.sel]; local k = row[1]; local v = cfg[k]
+  if row[3] == "bool" then v = not v
+  elseif type(row[3]) == "table" then local i = 1 for j,o in ipairs(row[3]) do if o == v then i = j end end
+    v = row[3][((i - 1 + dir) % #row[3]) + 1]
+  else v = math.max(row[4], math.min(row[5], (tonumber(v) or 0) + dir * row[3])); v = math.floor(v * 100 + 0.5) / 100 end
+  if isHost() then
+    if k == "Preset" then applyPreset(v) else cfg[k] = v end
+    saveSettings()
+  else
+    if k == "Preset" then applyPreset(v) else cfg[k] = v end
+    local pc = localPC() if pc then pcall(function() pc:Server_SendChatMessage({SenderName=localName(), SenderPlayerState=pc.PlayerState,
+      Message=(k == "Preset" and ("!preset "..v) or ("!set "..k.." "..(type(v)=="boolean" and tostring(v) or fmtVal(v))))}) end) end
+  end
+  menuRefresh()
+end
+S.menu = M
 
 local function win(reason)
   S.done = true; S.phase = "won"
@@ -808,6 +903,7 @@ LoopAsync(500, function() ExecuteInGameThread(function()
   if isHost() then pcall(hostReadCmds) pcall(dressHelpers) if inMission() then pcall(shieldTrigger) end end
   if cfg.NoReporting ~= false then pcall(hideObjectives) end
   pcall(shieldVisuals)
+  if M.open and S.tick2 then pcall(menuRefresh) end
   if S.tick2 then ok,e=pcall(dressPlayers) if not ok then log("dressP error: "..tostring(e)) end end
   S.tick2 = not S.tick2
 end) return false end)
@@ -816,12 +912,12 @@ local function key(name) return Key[name] or Key.F7 end
 RegisterKeyBind(key(cfg.ToggleKey), function() ExecuteInGameThread(function()
   cfg.Enabled = not cfg.Enabled; if not cfg.Enabled then for _,c in ipairs(list("PlayerCharacter")) do pcall(function() c.bGodMode=false end) end end
   S.map=nil; chat("Suspect Mode "..(cfg.Enabled and "ON (restarts setup timer)" or "OFF")) end) end)
-RegisterKeyBind(key(cfg.StatusKey), function() ExecuteInGameThread(function()
-  if isHost() then
-    chat(("phase=%s  SWAT alive=%d down=%d  mode=%s"):format(S.phase, swatAlive(), swatDead(), cfg.WinMode)); showMenu()
-  else local pc = localPC() if pc then pcall(function() pc:Server_SendChatMessage({SenderName=localName(), SenderPlayerState=pc.PlayerState, Message="!menu"}) end) end end
-end) end)
-log("v0.8 loaded")
+RegisterKeyBind(key(cfg.StatusKey), function() ExecuteInGameThread(function() local ok, e = pcall(menuToggle) if not ok then log("menu error: "..tostring(e)) end end) end)
+RegisterKeyBind(Key.UP_ARROW, function() if M.open then ExecuteInGameThread(function() M.sel = (M.sel - 2) % #ROWS + 1 pcall(menuRefresh) end) end end)
+RegisterKeyBind(Key.DOWN_ARROW, function() if M.open then ExecuteInGameThread(function() M.sel = M.sel % #ROWS + 1 pcall(menuRefresh) end) end end)
+RegisterKeyBind(Key.LEFT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, -1) end) end end)
+RegisterKeyBind(Key.RIGHT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, 1) end) end end)
+log("v0.9 loaded")
 RegisterKeyBind(Key.F9, function() ExecuteInGameThread(function() cycle("body", 1) end) end)
 RegisterKeyBind(Key.F9, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("body", -1) end) end)
 RegisterKeyBind(Key.F10, function() ExecuteInGameThread(function() cycle("head", 1) end) end)
