@@ -1,9 +1,19 @@
--- SUSPECT MODE v0.3 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
+-- SUSPECT MODE v0.4 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
 local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true}
 local okc, cfg = pcall(dofile, dir.."config.lua"); if not okc or type(cfg)~="table" then cfg = {Enabled=true,PrepSeconds=60,WinMode="timer",SurviveSeconds=600,KillTarget=4,SuspectHealthMult=2.5,StunResist=true,StunMaxSeconds=0.75,AnnounceEvery=60,SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,ToggleKey="F7",StatusKey="F8"} end
 for k,v in pairs(DEF) do if cfg[k]==nil then cfg[k]=v end end  -- old config.lua files keep working
+-- Presets: Preset = "standard" | "easy" | "hardcore" | "survival" | "custom". A preset overrides the matching
+-- config.lua values; "custom" uses config.lua exactly as written.
+local PRESETS = {
+  standard = {WinMode="eliminate", SwatBase=6, SwatPerPlayer=2, ReinforceEvery=0, EnemyAccuracy=0.55, SuspectHealthMult=2.5, PrepSeconds=60, BreachGrace=10, SwatIntelEvery=30},
+  easy     = {WinMode="eliminate", SwatBase=4, SwatPerPlayer=1, ReinforceEvery=0, EnemyAccuracy=0.35, SuspectHealthMult=4,   PrepSeconds=90, BreachGrace=15, SwatIntelEvery=45},
+  hardcore = {WinMode="eliminate", SwatBase=8, SwatPerPlayer=3, ReinforceEvery=150, ReinforceSize=3, ReinforceWaves=2, EnemyAccuracy=0.9, SuspectHealthMult=1.5, PrepSeconds=45, BreachGrace=5, SwatIntelEvery=20},
+  survival = {WinMode="timer", SurviveSeconds=600, SwatBase=6, SwatPerPlayer=2, ReinforceEvery=120, ReinforceSize=2, ReinforceWaves=3, EnemyAccuracy=0.55, SuspectHealthMult=2.5, PrepSeconds=60},
+}
+local pre = PRESETS[cfg.Preset or "standard"]
+if pre then for k,v in pairs(pre) do cfg[k] = v end end
 local TT_SUSPECT, TT_SWAT = 3, 1
 local SWAT_CLASS = "/Game/Blueprints/Characters/AI/CyberneticsSwat_V2.CyberneticsSwat_V2_C"
 local S = { map=nil, phase="idle", t0=0, prepEnd=0, lastAnn=0, done=false, limbs={} }
@@ -67,6 +77,57 @@ local function setMesh(comp, mesh)
   return ok
 end
 S.dressed = {}
+-- Suspect looks seen this session (body/head + base materials), captured from the map's own suspects before
+-- they are dressed as SWAT, and saved to looks.txt so the lobby and maps without suspects can use them too.
+S.looks = S.looks or {}
+local LOOKS_FILE = dir.."looks.txt"
+local function pathOf(o) local ok,r = pcall(function() return (o:GetFullName():gsub("^%S+ ","")) end) return ok and r or nil end
+local function baseMat(m)
+  local ok,p = pcall(function() return m.Parent end)
+  if ok and valid(p) and m:GetClass():GetFName():ToString():find("Dynamic") then return p end
+  return m
+end
+local function matPaths(comp) local t = {} pcall(function() for i=0,comp:GetNumMaterials()-1 do t[#t+1] = pathOf(baseMat(comp:GetMaterial(i))) or "" end end) return t end
+local function saveLooks()
+  local f = io.open(LOOKS_FILE, "w"); if not f then return end
+  for _,l in ipairs(S.looks) do f:write(l.body.."|"..l.head.."|"..table.concat(l.bm, ",").."|"..table.concat(l.hm, ",").."\n") end
+  f:close()
+end
+local function loadLooks()
+  local f = io.open(LOOKS_FILE, "r"); if not f then return end
+  for line in f:lines() do
+    local b,h,bm,hm = line:match("^([^|]*)|([^|]*)|([^|]*)|([^|]*)$")
+    if b and b ~= "" then
+      local l = {body=b, head=h, bm={}, hm={}}
+      for x in bm:gmatch("[^,]+") do l.bm[#l.bm+1]=x end
+      for x in hm:gmatch("[^,]+") do l.hm[#l.hm+1]=x end
+      S.looks[#S.looks+1]=l
+    end
+  end
+  f:close()
+end
+loadLooks()
+local function captureLook(c)
+  local b, h = pathOf(c.Mesh.SkeletalMesh), pathOf(c.FaceMesh.SkeletalMesh)
+  if not b or b:find("SWAT") then return end
+  for _,l in ipairs(S.looks) do if l.body == b then return end end
+  S.looks[#S.looks+1] = {body=b, head=h or "", bm=matPaths(c.Mesh), hm=matPaths(c.FaceMesh)}
+  table.sort(S.looks, function(x,y) return x.body < y.body end)  -- same order on every machine
+  saveLooks(); log("captured suspect look "..(b:match("[^/.]+$") or b))
+end
+local function applyMats(comp, paths)
+  for i,pth in ipairs(paths) do local m = asset(pth) if m then pcall(function() comp:SetMaterial(i-1, m) end) end end
+end
+
+local function nameHash(s) local h=0 for i=1,#s do h=(h*31+s:byte(i))%100003 end return h end
+local SWAT_VOICES = {"SWATSwan","SWATKing","SWATPrescott","SWATEli","SWATJudge"}
+local function nerfAim(c)
+  if not cfg.EnemyAccuracy then return end
+  pcall(function()
+    local a = c.Archetype
+    if valid(a) and math.abs(a.Accuracy - cfg.EnemyAccuracy) > 0.001 then a.bAccuracyOverride = true; a.Accuracy = cfg.EnemyAccuracy end
+  end)
+end
 local function dressHunters()
   if not cfg.Enabled or cfg.EnemyMode == "swat" or cfg.DressEnemiesAsSwat == false then return end
   -- Checked every tick, not once: the game applies the suspect's own look (async, after spawn / on replication)
@@ -74,11 +135,45 @@ local function dressHunters()
   for _,c in ipairs(list("SuspectCharacter")) do if valid(c) then
     local cur = ""; pcall(function() cur = c.Mesh.SkeletalMesh:GetFName():ToString() end)
     if not cur:find("SWAT") then
+      pcall(captureLook, c)
       local key = c:GetFullName()
       local n = (#key % 2) + 1  -- stable per pawn
       setMesh(c.Mesh, asset(SWAT_BODIES[n]))
       setMesh(c.FaceMesh, asset(SWAT_HEADS[n]))
+      if cfg.SwatVoices ~= false then pcall(function() c.SpeechCharacterName = SWAT_VOICES[(nameHash(key) % #SWAT_VOICES) + 1] end) end
       S.dressed[key] = (S.dressed[key] or 0) + 1
+    end
+    nerfAim(c)
+  end end
+end
+
+-- Players dressed as suspects (3rd-person body seen by everyone else, and the lobby mannequins): the SWAT
+-- customization parts and helmet are hidden, the base body/head become a captured suspect look. Armour can stay on top.
+-- Each player gets a look from their name (same on every machine); SuspectLook = n in config.lua forces one.
+local function dressPlayers()
+  if not cfg.Enabled or cfg.DressPlayersAsSuspects == false or #S.looks == 0 then return end
+  local comps = nil
+  for _,c in ipairs(list("PlayerCharacter")) do if valid(c) then
+    local who = ""; pcall(function() who = c.PlayerState:GetPlayerName():ToString() end)
+    local idx = (cfg.SuspectLook and cfg.SuspectLook > 0) and ((cfg.SuspectLook-1) % #S.looks + 1)
+                or (nameHash(who ~= "" and who or c:GetFName():ToString()) % #S.looks + 1)
+    local look = S.looks[idx]
+    local cur = pathOf(c.Mesh.SkeletalMesh) or ""
+    if cur ~= look.body then
+      local body, head = asset(look.body), asset(look.head)
+      if body then pcall(function() c.Mesh:SetSkeletalMeshAsset(body) end) applyMats(c.Mesh, look.bm) end
+      if head then pcall(function() c.FaceMesh:SetSkeletalMeshAsset(head) end) applyMats(c.FaceMesh, look.hm) end
+    end
+    comps = comps or list("SkeletalMeshComponent")
+    local me = c:GetFullName()
+    for _,comp in ipairs(comps) do
+      local ok, own = pcall(function() return comp:GetOwner():GetFullName() end)
+      if ok and own == me then
+        local n = comp:GetFName():ToString()
+        local hide = n:find("^SkeletalMesh_CSK") or n == "CustomizationFaceMesh" or n == "HelmetVisualizationComponent"
+                     or (n == "ArmorVisualizationComponent" and cfg.DressKeepArmor == false)
+        if hide and comp:IsVisible() then pcall(function() comp:SetVisibility(false, false) end) end
+      end
     end
   end end
 end
@@ -300,7 +395,7 @@ local function tick()
   if map ~= S.map then -- new mission
     S.map=map S.phase="prep" S.done=false S.limbs={} S.anchor=nil S.waves=0 S.moved={} S.squadGone=false S.graceEnd=nil S.dressed={} S.t0=os.time() S.prepEnd=S.t0+cfg.PrepSeconds S.lastAnn=0
     chat(("You are the SUSPECTS. %ds to set up - SWAT AI hunts you after that. Goal: %s"):format(cfg.PrepSeconds,
-      cfg.WinMode=="kills" and ("kill "..cfg.KillTarget.." SWAT") or ("survive "..fmt(cfg.SurviveSeconds))))
+      cfg.WinMode=="kills" and ("kill "..cfg.KillTarget.." SWAT") or cfg.WinMode=="eliminate" and "eliminate the whole SWAT team" or ("survive "..fmt(cfg.SurviveSeconds))))
   end
   local now = os.time()
   if S.phase=="prep" and now >= S.prepEnd then S.phase="live" S.liveStart=now S.lastAnn=now S.lastWave=now S.lastIntel=now S.graceEnd=now+cfg.BreachGrace
@@ -316,7 +411,7 @@ local function tick()
     if playersAlive() == 0 then return lose() end
     if cfg.SwatIntelEvery > 0 and now - S.lastIntel >= cfg.SwatIntelEvery then S.lastIntel = now; swatIntel() end
     if cfg.WinMode=="kills" and swatDead() >= cfg.KillTarget then return win(swatDead().." SWAT down") end
-    if cfg.WinMode~="kills" and now - S.liveStart >= cfg.SurviveSeconds then return win("you held out "..fmt(cfg.SurviveSeconds)) end
+    if cfg.WinMode=="timer" and now - S.liveStart >= cfg.SurviveSeconds then return win("you held out "..fmt(cfg.SurviveSeconds)) end
     local alive, wavesLeft = swatAlive(), cfg.ReinforceEvery > 0 and S.waves < cfg.ReinforceWaves
     if wavesLeft and (alive==0 or now - S.lastWave >= cfg.ReinforceEvery) then  -- reinforcements: on a timer, or at once after a wipe
       S.lastWave = now; S.waves = S.waves + 1
@@ -328,13 +423,15 @@ local function tick()
     end
     if #enemies()>0 and alive==0 and not (cfg.ReinforceEvery > 0 and S.waves < cfg.ReinforceWaves) then return win("entire SWAT element neutralised") end
     if now - S.lastAnn >= cfg.AnnounceEvery then S.lastAnn=now
-      chat(cfg.WinMode=="kills" and ("SWAT down: "..swatDead().."/"..cfg.KillTarget) or ("Hold out: "..fmt(cfg.SurviveSeconds-(now-S.liveStart)).." left, SWAT alive "..swatAlive())) end
+      chat(cfg.WinMode=="kills" and ("SWAT down: "..swatDead().."/"..cfg.KillTarget) or cfg.WinMode=="eliminate" and ("SWAT left: "..swatAlive()) or ("Hold out: "..fmt(cfg.SurviveSeconds-(now-S.liveStart)).." left, SWAT alive "..swatAlive())) end
   elseif S.phase=="prep" and now - S.lastAnn >= 15 then S.lastAnn=now chat("Setup time: "..fmt(S.prepEnd-now)) end
 end
 
 LoopAsync(500, function() ExecuteInGameThread(function()
   local ok,e=pcall(tick) if not ok then log("tick error: "..tostring(e)) end
   ok,e=pcall(dressHunters) if not ok then log("dress error: "..tostring(e)) end  -- every machine, not just the host
+  if S.tick2 then ok,e=pcall(dressPlayers) if not ok then log("dressP error: "..tostring(e)) end end
+  S.tick2 = not S.tick2
 end) return false end)
 
 local function key(name) return Key[name] or Key.F7 end
@@ -343,4 +440,4 @@ RegisterKeyBind(key(cfg.ToggleKey), function() ExecuteInGameThread(function()
   S.map=nil; chat("Suspect Mode "..(cfg.Enabled and "ON (restarts setup timer)" or "OFF")) end) end)
 RegisterKeyBind(key(cfg.StatusKey), function() ExecuteInGameThread(function()
   chat(("phase=%s  SWAT alive=%d dead=%d  mode=%s"):format(S.phase, swatAlive(), swatDead(), cfg.WinMode)) end) end)
-log("v0.3 loaded")
+log("v0.4 loaded")

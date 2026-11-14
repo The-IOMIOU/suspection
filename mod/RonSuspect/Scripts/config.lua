@@ -1,6 +1,14 @@
 -- SUSPECT MODE settings (host's file is the one that counts). Edit, then restart the game.
 return {
   Enabled          = true,
+  Preset           = "standard", -- "standard" (one SWAT team breaches: eliminate them all), "easy", "hardcore",
+                                 -- "survival" (hold out a timer vs waves) or "custom" (use every value below as written).
+                                 -- A preset overrides the values below that it sets.
+  EnemyAccuracy    = 0.55,   -- SWAT aim, 0..1 (1 = the game default suspect aim)
+  SwatVoices       = true,   -- enemies use SWAT voice lines instead of suspect ones
+  DressPlayersAsSuspects = true, -- players (and the lobby mannequins) look like suspects to everyone
+  DressKeepArmor   = true,   -- keep your chosen body armour visible on top of the suspect outfit
+  SuspectLook      = 0,      -- 0 = a look picked from your name; 1..n = a fixed look from looks.txt (filled as you play)
   EnemyMode        = "hunters",-- "hunters": hostile AI from the map's own spawners hunts you (it really shoots), AI squad removed
                              -- "swat": old team swap; the SWAT AI stands around and never shoots players
   HunterDropMin    = 2500,   -- hunters are dropped this far from a player at least (cm; 2500 = 25 m) ...
@@ -9,7 +17,7 @@ return {
   BreachGrace      = 10,     -- seconds the SWAT stay blind after the breach so nobody dies before they can react
   SpawnAway        = true,   -- move players away from the SWAT entry point when the mission starts
   PrepSeconds      = 60,     -- trap/setup time at mission start: you can't be hurt, SWAT AI is blind
-  WinMode          = "timer",-- "timer" = survive SurviveSeconds, "kills" = kill KillTarget SWAT
+  WinMode          = "eliminate",-- "eliminate" = kill the whole SWAT team, "timer" = survive SurviveSeconds, "kills" = kill KillTarget
   SurviveSeconds   = 600,
   KillTarget       = 4,
   SuspectHealthMult= 2.5,    -- players take 1/2.5 damage (2v10, so you get more health)

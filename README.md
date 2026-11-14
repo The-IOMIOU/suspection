@@ -3,7 +3,7 @@
 **Hold the building while the AI comes for you, in Ready or Not.** You get a setup phase, then armed enemies are sent in waves until you survive the timer, kill enough of them, or go down.
 It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip.
 
-> Status: **v0.3 is released** (enemies dressed as SWAT, waves, moved start, breach grace).
+> Status: **v0.4 is released**: presets, eliminate-the-team main mode, SWAT voices, enemy aim slider, players dressed as suspects.
 > Tested solo on one map only. Co-op is untested. See [docs/HANDOFF.md](docs/HANDOFF.md) for exactly what is verified.
 > Built with AI (Claude Code). If you are taking over, human or agent, start at [docs/HANDOFF.md](docs/HANDOFF.md). The wish-list is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -12,6 +12,9 @@ It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip
 |---|---|
 | Enemies that shoot | `EnemyMode = "hunters"` (default): hostile AI from the map's own spawners is dropped 25-45 m from a player and attacks. Your AI squad is removed. |
 | Enemies look like SWAT | `DressEnemiesAsSwat`: every hostile AI wears a SWAT uniform and a masked SWAT head, on every player's screen. Under the hood they are the game's suspect AI, the only AI that shoots players. |
+| Main mode + presets | `Preset = "standard"`: one SWAT team (6 + 2 per player) breaches, eliminate them all. Also `easy`, `hardcore`, `survival` (timer + waves) and `custom` (config.lua as written). |
+| SWAT voices and aim | `SwatVoices`: enemies use the SWAT squad's voice lines. `EnemyAccuracy` (0..1, standard 0.55) nerfs their aim. |
+| You look like a suspect | `DressPlayersAsSuspects`: your SWAT outfit parts and helmet are hidden and you wear a real suspect body and head, captured from the map's suspects and saved in `looks.txt`. Armour stays on top (`DressKeepArmor`). `SuspectLook = n` picks a fixed look. |
 | Breach grace | `BreachGrace` (default 10 s): enemies stay blind for a moment after the breach. |
 | Moved start | `SpawnAway`: you are moved away from the entry point when the mission starts. |
 | Setup phase | `PrepSeconds` (default 60): you can't be hurt and the enemies are blind. |

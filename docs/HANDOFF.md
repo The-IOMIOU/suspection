@@ -5,7 +5,9 @@ For whoever picks this up next, human or AI agent. Last updated 2026-11-13.
 ## Where the project stands
 - **Goal:** a "Suspect Mode" for Ready or Not that is as big as the normal mode: the players hold a building and the AI comes for them, in Steam co-op. The full wish-list is in [ROADMAP.md](ROADMAP.md).
 - **What works on `main`:** enemies that really shoot (`EnemyMode = "hunters"`), a setup phase, players moved away from the entry point, enemy top-up and reinforcement waves, win and lose conditions, chat HUD.
-- **Released:** v0.3 (2026-11-14): everything below, plus enemies dressed as SWAT and the breach grace.
+- **Released:** v0.4 (2026-11-14): presets (`standard` = eliminate one SWAT team), SWAT voices (`SpeechCharacterName` = SWATSwan/King/Prescott/Eli/Judge), enemy aim (`Archetype.bAccuracyOverride` + `Accuracy`; the archetype is a shared data asset), players dressed as suspects (`dressPlayers`: captured looks in `looks.txt`, `SkeletalMesh_CSK_*` / `CustomizationFaceMesh` / helmet hidden). v0.3 added enemies dressed as SWAT and the breach grace.
+- **v0.4 verified by values, not by eye:** player body/head = suspect meshes, 7/7 CSK parts hidden, voices = SWAT, accuracy 0.55. Your own 3rd-person body can't be seen solo (`SetViewTargetWithBlend` to another pawn didn't switch the camera). Needs a co-op check. Untested: whether SWAT voice banks have lines for every suspect speech event (a missing line just stays silent), and the lobby mannequin dressing.
+- **Next big item the user asked for:** a real character editor. Either rework the game's customization UI so you can pick a suspect body/head and add armour on top, or add a mod-side picker (F-key list of `looks.txt` entries, then layer armour/helmet items). Right now the only choice is `SuspectLook = n`.
 - **Biggest open problems**, in order:
   1. ~~Enemies look like suspects~~ fixed in v0.3 (`dressHunters`). Still open: the player model and the pre-mission lobby/briefing show SWAT.
   2. Enemies are teleported near the players. They do not walk in from the entry point.
