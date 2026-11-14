@@ -8,5 +8,5 @@ unzip -oq "build/dl/$ASSET" -d build/pkg/payload
 cp -r mod/RonSuspect build/pkg/payload/ue4ss/Mods/
 sed -i 's/^Keybinds : 1/RonSuspect : 1\nKeybinds : 1/' build/pkg/payload/ue4ss/Mods/mods.txt
 cp installer/* build/pkg/
-rm -f "dist/SuspectMode_$VER.zip"; (cd build/pkg && powershell -c "Compress-Archive -Path * -DestinationPath '$ROOT/dist/SuspectMode_$VER.zip'")
+rm -f "dist/SuspectMode_$VER.zip"; (cd build/pkg && powershell -c "Compress-Archive -Path * -DestinationPath '$(cygpath -m "$ROOT")/dist/SuspectMode_$VER.zip'")
 echo "built dist/SuspectMode_$VER.zip (UE4SS asset: $ASSET)"
