@@ -9,6 +9,7 @@ return {
   DressPlayersAsSuspects = true, -- players (and the lobby mannequins) look like suspects to everyone
   DressKeepArmor   = true,   -- keep your chosen body armour visible on top of the suspect outfit
   SuspectLook      = 0,      -- 0 = a look picked from your name; 1..n = a fixed look from looks.txt (filled as you play)
+  NoReporting      = true,   -- suspects never report to TOC: no "Report" prompt on bodies, props or arrests
   EnemyMode        = "hunters",-- "hunters": hostile AI from the map's own spawners hunts you (it really shoots), AI squad removed
                              -- "swat": old team swap; the SWAT AI stands around and never shoots players
   HunterDropMin    = 2500,   -- hunters are dropped this far from a player at least (cm; 2500 = 25 m) ...

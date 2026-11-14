@@ -1,4 +1,4 @@
--- SUSPECT MODE v0.4 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
+-- SUSPECT MODE v0.5 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
 local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true}
@@ -66,7 +66,8 @@ local SWAT_BODIES = { CH.."SWAT_Officer/Uniform_Heavy/SK_SWAT_U_Heavy_01.SK_SWAT
 local SWAT_HEADS  = { CH.."Heads/Swan/Meshes/head_swan_masked_LOD0_opt.head_swan_masked_LOD0_opt", CH.."Heads/Judge/Meshes/SK_SWAT_Head_Judge_Helmet_Masked_opt.SK_SWAT_Head_Judge_Helmet_Masked_opt" }
 local function asset(path)
   local a = StaticFindObject(path)
-  if not valid(a) then pcall(function() LoadAsset(path:gsub("%.[^.]+$","")) end) a = StaticFindObject(path) end
+  if not valid(a) then pcall(function() LoadAsset(path) end) a = StaticFindObject(path) end  -- full object path loads it
+  if not valid(a) then pcall(function() LoadAsset((path:gsub("%.[^.]+$",""))) end) a = StaticFindObject(path) end
   return valid(a) and a or nil
 end
 local function setMesh(comp, mesh)
@@ -147,6 +148,75 @@ local function dressHunters()
   end end
 end
 
+-- LOOK EDITOR (every machine): F9 / Shift+F9 = next / previous body, F10 / Shift+F10 = next / previous head,
+-- F11 = extras (none, armour, helmet, armour + helmet). Saved to mylook.txt. Every change is sent as a chat line
+-- "#look <body> <head> <extras>" so the other players' games dress you the same way (they read the game's chat log).
+local MYLOOK_FILE = dir.."mylook.txt"
+local function shortName(path) return (path or ""):match("([^/.]+)$") or "" end
+local function findLook(short)
+  for _,l in ipairs(S.looks) do if shortName(l.body) == short or shortName(l.head) == short then return l end end
+end
+local my = { body = nil, head = nil, extras = 1 }
+do local f = io.open(MYLOOK_FILE, "r")
+  if f then local b,h,e = (f:read("l") or ""):match("^(%S+) (%S+) (%d)") f:close()
+    if b then my.body, my.head, my.extras = b, h, tonumber(e) end end end
+local function saveMy() local f = io.open(MYLOOK_FILE, "w") if f then f:write(("%s %s %d\n"):format(my.body, my.head, my.extras)) f:close() end end
+local function localPC() local pc = FindFirstOf("ReadyOrNotPlayerController") return valid(pc) and pc or nil end
+local function localName() local n = "" pcall(function() n = localPC().PlayerState:GetPlayerName():ToString() end) return n end
+local function sayLocal(msg)  -- multicast called on the local machine only runs locally: private feedback line
+  log(msg) local gs = FindFirstOf("ReadyOrNotGameState")
+  pcall(function() gs:Multicast_BroadcastChatMessage({SenderName="LOOK", Message=msg, Color={R=0.6,G=0.9,B=1,A=1}}) end)
+end
+local function sendLook()
+  if not my.body then return end
+  local pc = localPC(); if not pc then return end
+  pcall(function() pc:Server_SendChatMessage({SenderName=localName(), SenderPlayerState=pc.PlayerState,
+    Message=("#look %s %s %d"):format(my.body, my.head, my.extras)}) end)
+  S.lastLookSent = os.time()
+end
+local remote = {}  -- player name -> choice, parsed from chat
+local function readChatLooks()
+  local gs = FindFirstOf("ReadyOrNotGameState"); if not valid(gs) then return end
+  pcall(function()
+    local arr = gs.SavedChatMessages
+    for i = 1, #arr do local m = arr[i]
+      local b,h,e = m.Message:ToString():match("^#look (%S+) (%S+) (%d)")
+      if b then remote[m.SenderName:ToString()] = {body=b, head=h, extras=tonumber(e)} end
+    end
+  end)
+end
+function lookChoiceFor(c, who)
+  local mine = false; pcall(function() mine = c.Controller == localPC() end)
+  if mine or (who ~= "" and who == localName()) then return my.body and my or nil end
+  return remote[who]
+end
+local EXTRAS = {[0]="no armour, no helmet", [1]="armour", [2]="helmet", [3]="armour + helmet"}
+local function cycle(part, step)
+  if #S.looks == 0 then return sayLocal("No suspect looks yet: play one mission with suspects first.") end
+  local cur = part == "body" and my.body or my.head
+  local i = 0 for k,l in ipairs(S.looks) do if shortName(part=="body" and l.body or l.head) == cur then i = k end end
+  i = ((i - 1 + step) % #S.looks) + 1
+  local l = S.looks[i]
+  if part == "body" then my.body = shortName(l.body); my.head = my.head or shortName(l.head)
+  else my.head = shortName(l.head); my.body = my.body or shortName(l.body) end
+  saveMy(); sendLook()
+  sayLocal(("%s %d/%d: %s   (F9 body, F10 head, F11 extras)"):format(part, i, #S.looks, part=="body" and my.body or my.head))
+end
+local function cycleExtras()
+  if not my.body then cycle("body", 0) end
+  my.extras = (my.extras + 1) % 4; saveMy(); sendLook(); sayLocal("extras: "..EXTRAS[my.extras])
+end
+S.editor = { cycle = cycle, extras = cycleExtras, my = my, remote = remote }
+
+-- No reporting: suspects don't call TOC. Every character counts as already reported, report-able props are
+-- switched off and TOC reports are disabled, so the "Report" prompt never shows. Host-side (replicated).
+local function noReports()
+  local gs = FindFirstOf("ReadyOrNotGameState")
+  if valid(gs) and gs.bCanReportToTOC then gs.bCanReportToTOC = false end
+  for _,c in ipairs(list("ReadyOrNotCharacter")) do if valid(c) and not c.bHasBeenReported then pcall(function() c.bHasBeenReported = true end) end end
+  for _,r in ipairs(list("ReportableActor")) do if valid(r) and r.bReportableEnabled then pcall(function() r.bReportableEnabled = false end) end end
+end
+
 -- Players dressed as suspects (3rd-person body seen by everyone else, and the lobby mannequins): the SWAT
 -- customization parts and helmet are hidden, the base body/head become a captured suspect look. Armour can stay on top.
 -- Each player gets a look from their name (same on every machine); SuspectLook = n in config.lua forces one.
@@ -158,21 +228,34 @@ local function dressPlayers()
     local idx = (cfg.SuspectLook and cfg.SuspectLook > 0) and ((cfg.SuspectLook-1) % #S.looks + 1)
                 or (nameHash(who ~= "" and who or c:GetFName():ToString()) % #S.looks + 1)
     local look = S.looks[idx]
+    local choice = lookChoiceFor(c, who)  -- look editor (F9/F10/F11), synced through chat
+    local bodyL, headL = look, look
+    if choice then bodyL = findLook(choice.body) or look; headL = findLook(choice.head) or bodyL end
     local cur = pathOf(c.Mesh.SkeletalMesh) or ""
-    if cur ~= look.body then
-      local body, head = asset(look.body), asset(look.head)
-      if body then pcall(function() c.Mesh:SetSkeletalMeshAsset(body) end) applyMats(c.Mesh, look.bm) end
-      if head then pcall(function() c.FaceMesh:SetSkeletalMeshAsset(head) end) applyMats(c.FaceMesh, look.hm) end
+    local curH = pathOf(c.FaceMesh.SkeletalMesh) or ""
+    if cur ~= bodyL.body then
+      local body = asset(bodyL.body)
+      if body then pcall(function() c.Mesh:SetSkeletalMeshAsset(body) end) applyMats(c.Mesh, bodyL.bm) end
     end
+    if curH ~= headL.head then
+      local head = asset(headL.head)
+      if head then pcall(function() c.FaceMesh:SetSkeletalMeshAsset(head) end) applyMats(c.FaceMesh, headL.hm) end
+    end
+    local keepArmor = cfg.DressKeepArmor ~= false
+    local keepHelmet = false
+    if choice then keepArmor = choice.extras == 1 or choice.extras == 3; keepHelmet = choice.extras >= 2 end
     comps = comps or list("SkeletalMeshComponent")
     local me = c:GetFullName()
     for _,comp in ipairs(comps) do
       local ok, own = pcall(function() return comp:GetOwner():GetFullName() end)
       if ok and own == me then
         local n = comp:GetFName():ToString()
-        local hide = n:find("^SkeletalMesh_CSK") or n == "CustomizationFaceMesh" or n == "HelmetVisualizationComponent"
-                     or (n == "ArmorVisualizationComponent" and cfg.DressKeepArmor == false)
-        if hide and comp:IsVisible() then pcall(function() comp:SetVisibility(false, false) end) end
+        local hide = n:find("^SkeletalMesh_CSK") or n == "CustomizationFaceMesh"
+        if n == "HelmetVisualizationComponent" then hide = not keepHelmet end
+        if n == "ArmorVisualizationComponent" then hide = not keepArmor end
+        if hide and comp:IsVisible() then pcall(function() comp:SetVisibility(false, false) end)
+        elseif not hide and (n == "HelmetVisualizationComponent" or n == "ArmorVisualizationComponent") and not comp:IsVisible() then
+          pcall(function() comp:SetVisibility(true, false) end) end
       end
     end
   end end
@@ -195,7 +278,7 @@ local PRIMARIES = { IT.."WeaponsRevised/Primary_MCX.Primary_MCX_C", IT.."Weapons
                     IT.."WeaponsRevised/Primary_SPC9.Primary_SPC9_C", IT.."WeaponsRevised/Primary_Superbnova.Primary_Superbnova_C" }
 local function class(path)
   local c = StaticFindObject(path)
-  if not valid(c) then pcall(function() LoadAsset(path:gsub("%.[^.]+$","")) end) c = StaticFindObject(path) end
+  if not valid(c) then pcall(function() LoadAsset(path) end) c = StaticFindObject(path) end
   return valid(c) and c or nil
 end
 local function giveKit(p)
@@ -430,6 +513,9 @@ end
 LoopAsync(500, function() ExecuteInGameThread(function()
   local ok,e=pcall(tick) if not ok then log("tick error: "..tostring(e)) end
   ok,e=pcall(dressHunters) if not ok then log("dress error: "..tostring(e)) end  -- every machine, not just the host
+  if cfg.NoReporting ~= false and isHost() then ok,e=pcall(noReports) if not ok then log("noReports error: "..tostring(e)) end end
+  pcall(readChatLooks)
+  if my.body and (not S.lastLookSent or os.time() - S.lastLookSent > 60) and inMission() then sendLook() end  -- late joiners
   if S.tick2 then ok,e=pcall(dressPlayers) if not ok then log("dressP error: "..tostring(e)) end end
   S.tick2 = not S.tick2
 end) return false end)
@@ -440,4 +526,9 @@ RegisterKeyBind(key(cfg.ToggleKey), function() ExecuteInGameThread(function()
   S.map=nil; chat("Suspect Mode "..(cfg.Enabled and "ON (restarts setup timer)" or "OFF")) end) end)
 RegisterKeyBind(key(cfg.StatusKey), function() ExecuteInGameThread(function()
   chat(("phase=%s  SWAT alive=%d dead=%d  mode=%s"):format(S.phase, swatAlive(), swatDead(), cfg.WinMode)) end) end)
-log("v0.4 loaded")
+log("v0.5 loaded")
+RegisterKeyBind(Key.F9, function() ExecuteInGameThread(function() cycle("body", 1) end) end)
+RegisterKeyBind(Key.F9, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("body", -1) end) end)
+RegisterKeyBind(Key.F10, function() ExecuteInGameThread(function() cycle("head", 1) end) end)
+RegisterKeyBind(Key.F10, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("head", -1) end) end)
+RegisterKeyBind(Key.F11, function() ExecuteInGameThread(cycleExtras) end)
