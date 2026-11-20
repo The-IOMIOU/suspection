@@ -1,4 +1,4 @@
--- SUSPECT MODE v0.10 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
+-- SUSPECT MODE v0.12 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
 local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true,SuspectArsenal=true,SuspectWeaponsOnly=true,Helpers=0,ProtectVIP=true,ShieldSeconds=20,ShieldCooldown=30}
@@ -119,7 +119,7 @@ local function captureLook(c)
   saveLooks(); log("captured suspect look "..(b:match("[^/.]+$") or b))
 end
 local function applyMats(comp, paths)
-  for i,pth in ipairs(paths) do local m = asset(pth, true) if m then pcall(function() comp:SetMaterial(i-1, m) end) end end
+  for i,pth in ipairs(paths) do local m = asset(pth, S.noLoad) if m then pcall(function() comp:SetMaterial(i-1, m) end) end end
 end
 
 local function nameHash(s) local h=0 for i=1,#s do h=(h*31+s:byte(i))%100003 end return h end
@@ -219,6 +219,7 @@ local function readChatLooks()
 end
 function lookChoiceFor(c, who)
   local mine = false; pcall(function() mine = c.Controller == localPC() end)
+  if not mine and c:GetFName():ToString() == "PlayerPreview" then mine = true end  -- loadout / customization preview
   if mine or (who ~= "" and who == localName()) then return my.body and my or nil end
   return remote[who]
 end
@@ -232,11 +233,11 @@ local function cycle(part, step)
   if part == "body" then my.body = shortName(l.body); my.head = my.head or shortName(l.head)
   else my.head = shortName(l.head); my.body = my.body or shortName(l.body) end
   saveMy(); sendLook()
-  sayLocal(("%s %d/%d: %s   (F9 body, F10 head, F11 extras)"):format(part, i, #S.looks, part=="body" and my.body or my.head))
+  if not S.lookPanelOpen then sayLocal(("%s %d/%d: %s   (F9 body, F10 head, F11 extras)"):format(part, i, #S.looks, part=="body" and my.body or my.head)) end
 end
-local function cycleExtras()
+local function cycleExtras(dir)
   if not my.body then cycle("body", 0) end
-  my.extras = (my.extras + 1) % 4; saveMy(); sendLook(); sayLocal("extras: "..EXTRAS[my.extras])
+  my.extras = (my.extras + (dir or 1)) % 4; saveMy(); sendLook(); if not S.lookPanelOpen then sayLocal("extras: "..EXTRAS[my.extras]) end
 end
 S.editor = { cycle = cycle, extras = cycleExtras, my = my, remote = remote }
 
@@ -252,10 +253,42 @@ end
 -- Players dressed as suspects (3rd-person body seen by everyone else, and the lobby mannequins): the SWAT
 -- customization parts and helmet are hidden, the base body/head become a captured suspect look. Armour can stay on top.
 -- Each player gets a look from their name (same on every machine); SuspectLook = n in config.lua forces one.
+S.followers = {}
+local SKC_CLASS = nil
+local function follower(c, name)
+  SKC_CLASS = SKC_CLASS or StaticFindObject("/Script/Engine.SkeletalMeshComponent")
+  local comp = c:AddComponentByClass(SKC_CLASS, false, {Translation={X=0,Y=0,Z=0}, Rotation={X=0,Y=0,Z=0,W=1}, Scale3D={X=1,Y=1,Z=1}}, false)
+  if not valid(comp) then return nil end
+  pcall(function() comp:K2_AttachToComponent(c.Mesh, FName("None"), 2, 2, 2, false) end)
+  pcall(function() comp:SetOwnerNoSee(c.Mesh.bOwnerNoSee) end)
+  return comp
+end
+function dressFollowers(c, bodyL, headL)
+  local key = c:GetFullName(); local f = S.followers[key]
+  if not f or not valid(f.body) then f = {body = follower(c), head = follower(c)}; S.followers[key] = f end
+  if not (f.body and f.head) then return end
+  if f.bodyPath ~= bodyL.body then local m = asset(bodyL.body, S.noLoad)
+    if m then pcall(function() f.body:SetSkeletalMeshAsset(m) end) applyMats(f.body, bodyL.bm)
+      pcall(function() f.body:SetLeaderPoseComponent(c.Mesh, false, false) end) pcall(function() f.body:SetMasterPoseComponent(c.Mesh, false) end)
+      f.bodyPath = bodyL.body end end
+  if f.headPath ~= headL.head then local m = asset(headL.head, S.noLoad)
+    if m then pcall(function() f.head:SetSkeletalMeshAsset(m) end) applyMats(f.head, headL.hm)
+      pcall(function() f.head:SetLeaderPoseComponent(c.Mesh, false, false) end) pcall(function() f.head:SetMasterPoseComponent(c.Mesh, false) end)
+      f.headPath = headL.head end end
+  -- hide the pawn's own body + face, but keep its pose updating so the followers animate
+  pcall(function() c.Mesh.VisibilityBasedAnimTickOption = 0 end)
+  for _,m in ipairs({c.Mesh, c.FaceMesh}) do pcall(function() if m:IsVisible() then m:SetVisibility(false, false) end end) end
+end
+
 local function dressPlayers()
   if not cfg.Enabled or cfg.DressPlayersAsSuspects == false or #S.looks == 0 then return end
   local comps = nil
-  for _,c in ipairs(list("PlayerCharacter")) do if valid(c) then
+  -- players + mannequins: the loadout/customization preview ("PlayerPreview") and the van-intro squad are
+  -- BasePlayer_Customization_C, which is not a PlayerCharacter
+  local pawns, seen = {}, {}
+  for _,cls in ipairs({"PlayerCharacter", "BasePlayer_Customization_C"}) do for _,c in ipairs(list(cls)) do
+    if valid(c) and not seen[c:GetFullName()] then seen[c:GetFullName()] = true pawns[#pawns+1] = c end end end
+  for _,c in ipairs(pawns) do if valid(c) then
     local who = ""; pcall(function() who = c.PlayerState:GetPlayerName():ToString() end)
     local idx = (cfg.SuspectLook and cfg.SuspectLook > 0) and ((cfg.SuspectLook-1) % #S.looks + 1)
                 or (nameHash(who ~= "" and who or c:GetFName():ToString()) % #S.looks + 1)
@@ -263,16 +296,9 @@ local function dressPlayers()
     local choice = lookChoiceFor(c, who)  -- look editor (F9/F10/F11), synced through chat
     local bodyL, headL = look, look
     if choice then bodyL = findLook(choice.body) or look; headL = findLook(choice.head) or bodyL end
-    local cur = pathOf(c.Mesh.SkeletalMesh) or ""
-    local curH = pathOf(c.FaceMesh.SkeletalMesh) or ""
-    if cur ~= bodyL.body then
-      local body = asset(bodyL.body, true)
-      if body then pcall(function() c.Mesh:SetSkeletalMeshAsset(body) end) applyMats(c.Mesh, bodyL.bm) end
-    end
-    if curH ~= headL.head then
-      local head = asset(headL.head, true)
-      if head then pcall(function() c.FaceMesh:SetSkeletalMeshAsset(head) end) applyMats(c.FaceMesh, headL.hm) end
-    end
+    -- The suspect body/head are separate follower meshes driven by the pawn's own (hidden, still animating) body:
+    -- forcing a suspect mesh into the SWAT/player body component left it invisible (helpers, van intro).
+    pcall(dressFollowers, c, bodyL, headL)
     local keepArmor = cfg.DressKeepArmor ~= false
     local keepHelmet = false
     if choice then keepArmor = choice.extras == 1 or choice.extras == 3; keepHelmet = choice.extras >= 2 end
@@ -290,7 +316,21 @@ local function dressPlayers()
           pcall(function() comp:SetVisibility(true, false) end) end
       end
     end
+    -- Mannequins (van intro, lobby, customization screen) wear their gear as separate item actors attached to them.
+    if c:GetClass():GetFName():ToString():find("Customization") then
+      S.gearActors = S.gearActors or list("BaseItem")
+      for _,it in ipairs(S.gearActors) do pcall(function()
+        local par = it:GetAttachParentActor()
+        if par and par:IsValid() and par:GetFullName() == me then
+          local cn = it:GetClass():GetFName():ToString()
+          local isArmor = cn:find("Armor") ~= nil
+          local isHead = cn:find("Helmet") or cn:find("Goggles") or cn:find("Facewear") or cn:find("NVG") or cn:find("Mount")
+          local hideIt = (isHead and not keepHelmet) or (isArmor and not keepArmor)
+          if hideIt and not it.bHidden then it:SetActorHiddenInGame(true) elseif not hideIt and (isHead or isArmor) and it.bHidden then it:SetActorHiddenInGame(false) end
+        end end) end
+    end
   end end
+  S.gearActors = nil
 end
 
 local function isDown(c) local d = false pcall(function() d = c:IsHealthDepleted() or c.bArrestComplete or c.bSurrenderComplete end) return d end
@@ -657,7 +697,7 @@ local function dressHelpers()
   for i,c in ipairs(S.helpers) do if valid(c) and not c:IsHealthDepleted() then
     local look = S.looks[(i * 3) % #S.looks + 1]
     if (pathOf(c.Mesh.SkeletalMesh) or "") ~= look.body then
-      local b, h = asset(look.body, true), asset(look.head, true)
+      local b, h = asset(look.body, S.noLoad), asset(look.head, S.noLoad)
       if b then pcall(function() c.Mesh:SetSkeletalMeshAsset(b) end) applyMats(c.Mesh, look.bm) end
       if h then pcall(function() c.FaceMesh:SetSkeletalMeshAsset(h) end) applyMats(c.FaceMesh, look.hm) end
       if S.susVoice then pcall(function() c.SpeechCharacterName = S.susVoice end) end
@@ -931,6 +971,83 @@ local function arsenal()
   log(("loadout: %s (%s)"):format(only and "suspect weapons only" or "all weapons", table.concat(counts, ", ")))
 end
 
+-- ===== SUSPECT LOOK panel (inside the vanilla loadout / customization screen) ===================================
+local LP = { w = nil, sel = 1, vals = {}, labels = {}, rows = {} }
+local function prettyLook(n)
+  local t = (n or "-"):gsub("^SK_",""):gsub("^[Bb]ody_",""):gsub("^[Hh]ead_",""):gsub("_[Bb]ody%d*$",""):gsub("_[Hh]ead%d*$","")
+  return (t:gsub("_"," "):upper())
+end
+local function lookIndex(part)
+  local cur = part == "body" and my.body or my.head
+  for k,l in ipairs(S.looks) do if shortName(part == "body" and l.body or l.head) == cur then return k end end
+  return 0
+end
+local function lookRefresh()
+  if not LP.w then return end
+  local vals = {
+    ("%s   %d/%d"):format(prettyLook(my.body), lookIndex("body"), #S.looks),
+    ("%s   %d/%d"):format(prettyLook(my.head), lookIndex("head"), #S.looks),
+    EXTRAS[my.extras]:upper() }
+  for i = 1, 3 do local on = i == LP.sel
+    pcall(function()
+      LP.rows[i]:SetBrushColor(on and {R=0.55,G=0.06,B=0.05,A=0.55} or {R=0,G=0,B=0,A=0})
+      LP.labels[i]:SetColorAndOpacity(on and WHITE or GREY)
+      LP.vals[i]:SetText(FText(on and ("<  "..vals[i].."  >") or vals[i]))
+    end)
+  end
+end
+local function lookBuild()
+  local pc = localPC(); if not pc then return false end
+  local w = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary"):Create(pc, StaticFindObject("/Script/UMG.UserWidget"), pc)
+  if not valid(w) then return false end
+  local function new(cls) return StaticConstructObject(StaticFindObject("/Script/UMG."..cls), w.WidgetTree) end
+  w.WidgetTree = StaticConstructObject(StaticFindObject("/Script/UMG.WidgetTree"), w)
+  local font = asset(FONT, true)
+  local canvas = new("CanvasPanel"); w.WidgetTree.RootWidget = canvas
+  local border = new("Border"); border:SetBrushColor({R=0.012,G=0.012,B=0.014,A=0.82}); pcall(function() border:SetPadding({Left=22,Top=16,Right=22,Bottom=16}) end)
+  local slot = canvas:AddChildToCanvas(border)
+  pcall(function() slot:SetAnchors({Minimum={X=1,Y=0.5}, Maximum={X=1,Y=0.5}}) slot:SetAlignment({X=1,Y=0.5}) end)
+  slot:SetPosition({X=-60, Y=120}); slot:SetSize({X=520, Y=210})
+  local vb = new("VerticalBox"); border:SetContent(vb)
+  local function text(str, col, size, face)
+    local t = new("TextBlock"); t:SetText(FText(str)); t:SetColorAndOpacity(col)
+    pcall(function() local f = t.Font f.Size = size if font then f.FontObject = font f.TypefaceFontName = FName(face or "Regular") end t:SetFont(f) end)
+    return t
+  end
+  vb:AddChildToVerticalBox(text("SUSPECT", RED, 11, "SemiBold"))
+  vb:AddChildToVerticalBox(text("CHARACTER LOOK", WHITE, 22, "SemiBold"))
+  vb:AddChildToVerticalBox(text(" ", WHITE, 4))
+  for i,lab in ipairs({"BODY", "HEAD", "GEAR"}) do
+    local rb = new("Border"); rb:SetBrushColor({R=0,G=0,B=0,A=0}); pcall(function() rb:SetPadding({Left=8,Top=3,Right=8,Bottom=3}) end)
+    local hb = new("HorizontalBox"); rb:SetContent(hb)
+    local sz = new("SizeBox"); pcall(function() sz:SetWidthOverride(110) end)
+    LP.labels[i] = text(lab, GREY, 14, "Medium"); sz:SetContent(LP.labels[i]); hb:AddChildToHorizontalBox(sz)
+    LP.vals[i] = text("", WHITE, 14, "SemiBold"); hb:AddChildToHorizontalBox(LP.vals[i])
+    vb:AddChildToVerticalBox(rb); LP.rows[i] = rb
+  end
+  vb:AddChildToVerticalBox(text(" ", WHITE, 4))
+  local keys = new("HorizontalBox")
+  for _,kv in ipairs({{"UP/DOWN"," SELECT     "},{"LEFT/RIGHT"," CHANGE"}}) do
+    keys:AddChildToHorizontalBox(text(kv[1], RED, 11, "SemiBold")); keys:AddChildToHorizontalBox(text(kv[2], GREY, 11, "Medium")) end
+  vb:AddChildToVerticalBox(keys)
+  LP.w = w; return true
+end
+local function lookPanelTick()  -- show while the game's loadout / customization screen is up
+  local want = false
+  if cfg.DressPlayersAsSuspects ~= false and #S.looks > 0 then pcall(function()
+    for _,wn in ipairs({"W_Loadout_V2_C", "W_Customization_C"}) do local w = FindFirstOf(wn)
+      if w and w:IsValid() and w:IsInViewport() then want = true end end end) end
+  if want and not S.lookPanelOpen then
+    if not (LP.w and valid(LP.w)) then LP.w = nil; if not lookBuild() then return end end
+    if not my.body then local l = S.looks[1]; my.body, my.head = shortName(l.body), shortName(l.head) end
+    pcall(function() LP.w:AddToViewport(450) end); S.lookPanelOpen = true; lookRefresh()
+  elseif not want and S.lookPanelOpen then pcall(function() LP.w:RemoveFromParent() end); S.lookPanelOpen = false end
+end
+local function lookChange(dir)
+  if LP.sel == 1 then cycle("body", dir) elseif LP.sel == 2 then cycle("head", dir) else cycleExtras(dir) end
+  lookRefresh()
+end
+
 local function win(reason)
   S.done = true; S.phase = "won"
   chat("SUSPECTS WIN - "..reason.."  (remaining SWAT stand down)")
@@ -947,7 +1064,7 @@ local function tick()
   local map = inMission()
   if not map then S.map=nil S.phase="idle" return end
   if map ~= S.map then -- new mission
-    S.map=map S.phase="prep" S.done=false S.limbs={} S.anchor=nil S.waves=0 S.moved={} S.squadGone=false S.helpers=nil S.vip=nil S.shields={} S.shieldCd={} S.graceEnd=nil S.dressed={} S.t0=os.time() S.prepEnd=S.t0+cfg.PrepSeconds S.lastAnn=0
+    S.map=map S.phase="prep" S.done=false S.limbs={} S.anchor=nil S.waves=0 S.moved={} S.squadGone=false S.followers={} S.helpers=nil S.vip=nil S.shields={} S.shieldCd={} S.graceEnd=nil S.dressed={} S.t0=os.time() S.prepEnd=S.t0+cfg.PrepSeconds S.lastAnn=0
     chat(("You are the SUSPECTS. %ds to set up - SWAT AI hunts you after that. Goal: %s"):format(cfg.PrepSeconds,
       cfg.WinMode=="kills" and ("kill "..cfg.KillTarget.." SWAT") or cfg.WinMode=="eliminate" and "eliminate the whole SWAT team" or ("survive "..fmt(cfg.SurviveSeconds))))
   end
@@ -996,6 +1113,9 @@ LoopAsync(500, function() ExecuteInGameThread(function()
   S.uiTick = (S.uiTick or 0) + 1; if S.uiTick % 4 == 0 then pcall(uiText) end
   if not inMission() then local ok, e = pcall(arsenal) if not ok then log("arsenal error: "..tostring(e)) end end
   if M.open and S.tick2 then pcall(menuRefresh) end
+  pcall(lookPanelTick)
+  S.inMissionNow = inMission() ~= nil
+  S.noLoad = S.inMissionNow and not S.lookPanelOpen  -- loading is allowed outside missions and while the loadout screen is up
   if S.tick2 then ok,e=pcall(dressPlayers) if not ok then log("dressP error: "..tostring(e)) end end
   S.tick2 = not S.tick2
 end) return false end)
@@ -1005,14 +1125,14 @@ RegisterKeyBind(key(cfg.ToggleKey), function() ExecuteInGameThread(function()
   cfg.Enabled = not cfg.Enabled; if not cfg.Enabled then for _,c in ipairs(list("PlayerCharacter")) do pcall(function() c.bGodMode=false end) end end
   S.map=nil; chat("Suspect Mode "..(cfg.Enabled and "ON (restarts setup timer)" or "OFF")) end) end)
 RegisterKeyBind(key(cfg.StatusKey), function() ExecuteInGameThread(function() local ok, e = pcall(menuToggle) if not ok then log("menu error: "..tostring(e)) end end) end)
-RegisterKeyBind(Key.UP_ARROW, function() if M.open then ExecuteInGameThread(function() M.sel = (M.sel - 2) % #ROWS + 1 pcall(menuRefresh) end) end end)
-RegisterKeyBind(Key.DOWN_ARROW, function() if M.open then ExecuteInGameThread(function() M.sel = M.sel % #ROWS + 1 pcall(menuRefresh) end) end end)
-RegisterKeyBind(Key.LEFT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, -1) end) end end)
-RegisterKeyBind(Key.RIGHT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, 1) end) end end)
-log("v0.10 loaded")
+RegisterKeyBind(Key.UP_ARROW, function() if M.open then ExecuteInGameThread(function() M.sel = (M.sel - 2) % #ROWS + 1 pcall(menuRefresh) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() LP.sel = (LP.sel - 2) % 3 + 1 pcall(lookRefresh) end) end end)
+RegisterKeyBind(Key.DOWN_ARROW, function() if M.open then ExecuteInGameThread(function() M.sel = M.sel % #ROWS + 1 pcall(menuRefresh) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() LP.sel = LP.sel % 3 + 1 pcall(lookRefresh) end) end end)
+RegisterKeyBind(Key.LEFT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, -1) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() pcall(lookChange, -1) end) end end)
+RegisterKeyBind(Key.RIGHT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, 1) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() pcall(lookChange, 1) end) end end)
+log("v0.12 loaded")
 RegisterKeyBind(Key.F9, function() ExecuteInGameThread(function() cycle("body", 1) end) end)
 RegisterKeyBind(Key.F9, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("body", -1) end) end)
 RegisterKeyBind(Key.F10, function() ExecuteInGameThread(function() cycle("head", 1) end) end)
 RegisterKeyBind(Key.F10, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("head", -1) end) end)
-RegisterKeyBind(Key.F11, function() ExecuteInGameThread(cycleExtras) end)
+RegisterKeyBind(Key.F11, function() ExecuteInGameThread(function() cycleExtras(1) end) end)
 LoopAsync(250, function() if next(S.shields) then ExecuteInGameThread(function() local ok, e = pcall(tickShields) if not ok and not S.tsErr then S.tsErr = true log("tickShields error: "..tostring(e)) end end) end return false end)
