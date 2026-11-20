@@ -2,6 +2,13 @@
 
 Download any version from the [Releases page](../../releases). Every player installs the same version.
 
+## v0.12.2 - Station hub crash fix
+- Fixes a crash in the police station hub: the mod force-loaded suspect outfit assets there (the log showed 5 loads, then
+  the crash). Outfit assets now load only on the loadout screen and in the pre-mission van, never in the hub or a mission.
+- Every asset is loaded at most once per session, and each load is logged as `[SuspectMode] loading <asset> (map <map>)`,
+  so a future crash log shows exactly what was loaded.
+- The log line shows the exact version (`v0.12.2 loaded`).
+
 ## v0.12.1 - Crash hardening + documentation
 - **Main-menu safe mode:** at the main menu the mod only prepares the loadout lists and the F8 menu; it no longer touches
   the menu scene (a friend's game crashed ~5 s into the main menu on v0.12, with no error in the log).

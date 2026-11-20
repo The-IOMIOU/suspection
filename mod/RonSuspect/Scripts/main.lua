@@ -65,10 +65,18 @@ end
 local CH = "/Game/ReadyOrNot/Character/SWAT/"
 local SWAT_BODIES = { CH.."SWAT_Officer/Uniform_Heavy/SK_SWAT_U_Heavy_01.SK_SWAT_U_Heavy_01", CH.."SWAT_Officer/Uniform_Light/SK_SWAT_U_Light_01.SK_SWAT_U_Light_01" }
 local SWAT_HEADS  = { CH.."Heads/Swan/Meshes/head_swan_masked_LOD0_opt.head_swan_masked_LOD0_opt", CH.."Heads/Judge/Meshes/SK_SWAT_Head_Judge_Helmet_Masked_opt.SK_SWAT_Head_Judge_Helmet_Masked_opt" }
+-- Forced loads are risky (crashes mid-mission and in the station hub), so: each path is loaded at most ONCE per
+-- session, and every load is logged with the current map, so a crash log shows exactly what was loaded where.
+S.loadTried = S.loadTried or {}
 local function asset(path, noLoad)
   local a = StaticFindObject(path)
-  if noLoad then return valid(a) and a or nil end  -- suspect looks: a forced LoadAsset mid-mission crashed the game twice
-  if not valid(a) then pcall(function() LoadAsset(path) end) a = StaticFindObject(path) end  -- full object path loads it
+  if valid(a) then return a end
+  if noLoad or S.loadTried[path] then return nil end
+  S.loadTried[path] = true
+  local where = "?" pcall(function() where = FindFirstOf("World"):GetFName():ToString() end)
+  print("[SuspectMode] loading "..path.." (map "..where..")
+")
+  pcall(function() LoadAsset(path) end) a = StaticFindObject(path)  -- full object path loads it
   if not valid(a) then pcall(function() LoadAsset((path:gsub("%.[^.]+$",""))) end) a = StaticFindObject(path) end
   return valid(a) and a or nil
 end
@@ -1125,7 +1133,11 @@ LoopAsync(500, function() ExecuteInGameThread(function()
   if M.open and S.tick2 then pcall(menuRefresh) end
   pcall(lookPanelTick)
   S.inMissionNow = inMission() ~= nil
-  S.noLoad = S.inMissionNow and not S.lookPanelOpen  -- loading is allowed outside missions and while the loadout screen is up
+  -- Loading is allowed only where it was tested safe: the loadout screen (look panel up) and the pre-mission van.
+  -- Never in a mission, never in the station hub (your game crashed there right after 5 loads).
+  local hub = false pcall(function() local gm = FindFirstOf("ReadyOrNotGameMode") hub = valid(gm) and gm:GetFullName():find("Lobby") ~= nil end)
+  if not hub then pcall(function() local gs = FindFirstOf("ReadyOrNotGameState") hub = valid(gs) and gs:GetClass():GetFName():ToString():find("Lobby") ~= nil end) end
+  S.noLoad = not S.lookPanelOpen and (S.inMissionNow or hub)
   if S.tick2 then ok,e=pcall(dressPlayers) if not ok then log("dressP error: "..tostring(e)) end end
   S.tick2 = not S.tick2
 end) return false end)
@@ -1139,7 +1151,7 @@ RegisterKeyBind(Key.UP_ARROW, function() if M.open then ExecuteInGameThread(func
 RegisterKeyBind(Key.DOWN_ARROW, function() if M.open then ExecuteInGameThread(function() M.sel = M.sel % #ROWS + 1 pcall(menuRefresh) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() LP.sel = LP.sel % 3 + 1 pcall(lookRefresh) end) end end)
 RegisterKeyBind(Key.LEFT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, -1) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() pcall(lookChange, -1) end) end end)
 RegisterKeyBind(Key.RIGHT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, 1) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() pcall(lookChange, 1) end) end end)
-log("v0.12 loaded")
+log("v0.12.2 loaded")
 RegisterKeyBind(Key.F9, function() ExecuteInGameThread(function() cycle("body", 1) end) end)
 RegisterKeyBind(Key.F9, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("body", -1) end) end)
 RegisterKeyBind(Key.F10, function() ExecuteInGameThread(function() cycle("head", 1) end) end)

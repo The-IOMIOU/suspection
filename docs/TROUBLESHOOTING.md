@@ -38,7 +38,12 @@ This is almost always the **mod loader (UE4SS)** failing on that PC, not the Sus
 
 To play without the mod meanwhile, run `uninstall.bat` (or keep `dwmapi.dll` renamed).
 
-## The game crashes during a mission
+## The game crashes in the station hub or during a mission
+
+Check the last `[SuspectMode] loading ...` lines in `UE4SS.log` right before the end: they name the asset and the map.
+v0.12.2 never loads assets in the hub or during a mission (a crash in the hub came right after 5 forced loads in v0.12.1).
+
+## (older) The game crashes during a mission
 
 Send the two files. Note what you were doing (setup phase, after the breach, opening the loadout...). The mod
 avoids loading assets mid-mission because that crashed in testing, but other causes are possible.
