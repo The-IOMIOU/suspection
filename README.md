@@ -6,7 +6,7 @@ take you down.** Dig in during the setup phase, grab a human shield, protect you
 It works in Steam co-op, and it plugs into the game's own screens: the normal loadout offers suspect weapons, your
 character preview is a suspect you can customise, and the van intro shows your crew as suspects.
 
-> **Status: v0.12.3.** Tested solo on the Gas Station map. Co-op with two real players is built but not fully tested.
+> **Status: v0.13.** Tested solo on the Gas Station map. Co-op with two real players is built but not fully tested.
 > Built with AI (Claude Code). Unofficial; not affiliated with VOID Interactive.
 
 ---

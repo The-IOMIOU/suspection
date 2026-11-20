@@ -2,6 +2,15 @@
 
 Download any version from the [Releases page](../../releases). Every player installs the same version.
 
+## v0.13 - Co-op fixes
+- **Half-invisible players fixed:** a player's own body is only hidden once the suspect outfit part is really on. If an
+  outfit isn't in memory (assets unload on map change), that part stays SWAT instead of going invisible.
+- **Crash guard:** dead or dying characters are never re-dressed or touched (a host crash happened the instant the host
+  was killed while the friend grabbed a hostage). A hostage is released the moment her captor dies.
+- Human shield: every player's hostage is attached to them (smooth). A teleport-follow experiment jittered in testing
+  and is off (`ShieldFollowMode = "teleport"` to try it).
+- Dev: the build script no longer wipes the `build/` test scripts.
+
 ## v0.12.3 - Fix for v0.12.2
 - v0.12.2 had a syntax error in `main.lua`, so the mod didn't load at all (no F8 menu, everything off). Fixed.
 - The build script now refuses to package a mod that doesn't compile (`luac -p`).

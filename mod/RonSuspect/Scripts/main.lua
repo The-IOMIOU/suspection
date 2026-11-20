@@ -1,4 +1,4 @@
--- SUSPECT MODE v0.12 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
+-- SUSPECT MODE v0.13 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
 local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true,SuspectArsenal=true,SuspectWeaponsOnly=true,Helpers=0,ProtectVIP=true,ShieldSeconds=20,ShieldCooldown=30}
@@ -271,6 +271,8 @@ local function follower(c, name)
   return comp
 end
 function dressFollowers(c, bodyL, headL)
+  local dead = false pcall(function() dead = c:IsHealthDepleted() end)
+  if dead then return end  -- ragdolling / dying pawns are left alone (a crash came right as a player was killed)
   local key = c:GetFullName(); local f = S.followers[key]
   if not f or not valid(f.body) then f = {body = follower(c), head = follower(c)}; S.followers[key] = f end
   if not (f.body and f.head) then return end
@@ -282,9 +284,11 @@ function dressFollowers(c, bodyL, headL)
     if m then pcall(function() f.head:SetSkeletalMeshAsset(m) end) applyMats(f.head, headL.hm)
       pcall(function() f.head:SetLeaderPoseComponent(c.Mesh, false, false) end) pcall(function() f.head:SetMasterPoseComponent(c.Mesh, false) end)
       f.headPath = headL.head end end
-  -- hide the pawn's own body + face, but keep its pose updating so the followers animate
+  -- Hide the pawn's own body / face only where the suspect part is really on (keeps animating for the followers).
+  -- If an outfit isn't in memory (assets unload on map change) that part stays SWAT instead of going invisible.
   pcall(function() c.Mesh.VisibilityBasedAnimTickOption = 0 end)
-  for _,m in ipairs({c.Mesh, c.FaceMesh}) do pcall(function() if m:IsVisible() then m:SetVisibility(false, false) end end) end
+  if f.bodyPath then pcall(function() if c.Mesh:IsVisible() then c.Mesh:SetVisibility(false, false) end end) end
+  if f.headPath then pcall(function() if c.FaceMesh:IsVisible() then c.FaceMesh:SetVisibility(false, false) end end) end
 end
 
 local function dressPlayers()
@@ -315,7 +319,8 @@ local function dressPlayers()
       local ok, own = pcall(function() return comp:GetOwner():GetFullName() end)
       if ok and own == me then
         local n = comp:GetFName():ToString()
-        local hide = n:find("^SkeletalMesh_CSK") or n == "CustomizationFaceMesh"
+        local fol = S.followers[me]
+        local hide = (n:find("^SkeletalMesh_CSK") or n == "CustomizationFaceMesh") and fol and fol.bodyPath ~= nil
         if n == "HelmetVisualizationComponent" then hide = not keepHelmet end
         if n == "ArmorVisualizationComponent" then hide = not keepArmor end
         if hide and comp:IsVisible() then pcall(function() comp:SetVisibility(false, false) end)
@@ -608,8 +613,24 @@ CMD.hostage = function(p)
     local cl = c:K2_GetActorLocation(); local d = math.sqrt((cl.X-l.X)^2 + (cl.Y-l.Y)^2 + (cl.Z-l.Z)^2)
     if not busy and d < 300 then cands[#cands+1] = {c=c, d=d} end end end
   table.sort(cands, function(a,b) return a.d < b.d end)
+  if p:IsHealthDepleted() then return false end
+  -- Everyone's hostage is attached (smooth on every screen). The teleport-follow path ("remote") glitched badly in a
+  -- real test (hostage jittered and lost the captor), so it is only used if ShieldFollowMode = "teleport".
+  local remote = cfg.ShieldFollowMode == "teleport"
   local best = nil
   for _,cd in ipairs(cands) do local c = cd.c
+    if remote then
+      -- A client's hostage: no attachment to a remote-controlled pawn (the host crashed right after that). The host
+      -- moves her in front of the captor every 50 ms with normal movement, which replicates to every machine.
+      pcall(function() c:K2_DetachFromActor(1, 1, 1) end)
+      pcall(function() c.CharacterMovement:SetMovementMode(1, 0) end)
+      pcall(function() c.Controller:StopMovement() end)
+      local pt = fwdPoint(p, cfg.ShieldDistance or 60)
+      local moved = false pcall(function() moved = c:K2_SetActorLocation(pt, false, {}, true) end)
+      if moved then best = c break end
+      log("civilian "..c:GetFName():ToString().." couldn't be moved (scripted), trying next")
+      goto continue
+    end
     -- Held = attached to the captor 60 cm ahead, a little left so you can aim past their shoulder. Attachment
     -- replicates, so every machine sees them glued in front.
     pcall(function() c:K2_DetachFromActor(1, 1, 1) end)
@@ -624,9 +645,10 @@ CMD.hostage = function(p)
     pcall(function() c.CapsuleComponent:SetCollisionEnabled(3) end)
     pcall(function() c.CharacterMovement:SetMovementMode(1, 0) end)
     log("civilian "..c:GetFName():ToString().." couldn't be grabbed (scripted), trying next")
+    ::continue::
   end
   if not best then return false end
-  S.shields[key] = {civ=best, t0=os.time(), team=p:GetTeam()}
+  S.shields[key] = {civ=best, t0=os.time(), team=p:GetTeam(), follow=remote}
   setTeam(p, TT_SUSPECT)
   chat(("%s took a human shield! SWAT hold fire for %ds. Switch weapon to let go."):format(pname(p), cfg.ShieldSeconds))
   return true
@@ -638,6 +660,9 @@ local function tickShields()  -- hold timer, captor/hostage death
       if valid(sh.civ) then pcall(function() sh.civ:K2_DetachFromActor(1, 1, 1) end) pcall(function() sh.civ.CapsuleComponent:SetCollisionEnabled(3) end) pcall(function() sh.civ.CharacterMovement:SetMovementMode(1, 0) end) end
     elseif not valid(sh.civ) or sh.civ:IsHealthDepleted() then releaseShield(p, "lost")
     elseif os.time() - sh.t0 >= cfg.ShieldSeconds then releaseShield(p, "can't hold on to")
+    elseif sh.follow then
+      local pt, yaw = fwdPoint(p, cfg.ShieldDistance or 60)
+      pcall(function() sh.civ:K2_SetActorLocation(pt, false, {}, true) sh.civ:K2_SetActorRotation({Pitch=0, Yaw=yaw, Roll=0}, true) end)
     end
   end
 end
@@ -664,7 +689,7 @@ end
 local HOSTAGE_IDLE = "/Game/ReadyOrNot/Animations/TP/interaction/hostage/new/montages/tp_hostage_idle_01_slave_Montage.tp_hostage_idle_01_slave_Montage"
 local function shieldVisuals()
   local civs = nil
-  for _,p in ipairs(list("PlayerCharacter")) do if valid(p) and not p:GetClass():GetFName():ToString():find("Custom") and hasShield(p) then
+  for _,p in ipairs(list("PlayerCharacter")) do if valid(p) and not p:GetClass():GetFName():ToString():find("Custom") and not p:IsHealthDepleted() and hasShield(p) then
     civs = civs or list("CivilianCharacter")
     local l = p:K2_GetActorLocation(); local held = nil
     for _,c in ipairs(civs) do if valid(c) and not c:IsHealthDepleted() then
@@ -1150,10 +1175,10 @@ RegisterKeyBind(Key.UP_ARROW, function() if M.open then ExecuteInGameThread(func
 RegisterKeyBind(Key.DOWN_ARROW, function() if M.open then ExecuteInGameThread(function() M.sel = M.sel % #ROWS + 1 pcall(menuRefresh) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() LP.sel = LP.sel % 3 + 1 pcall(lookRefresh) end) end end)
 RegisterKeyBind(Key.LEFT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, -1) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() pcall(lookChange, -1) end) end end)
 RegisterKeyBind(Key.RIGHT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, 1) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() pcall(lookChange, 1) end) end end)
-log("v0.12.3 loaded")
+log("v0.13 loaded")
 RegisterKeyBind(Key.F9, function() ExecuteInGameThread(function() cycle("body", 1) end) end)
 RegisterKeyBind(Key.F9, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("body", -1) end) end)
 RegisterKeyBind(Key.F10, function() ExecuteInGameThread(function() cycle("head", 1) end) end)
 RegisterKeyBind(Key.F10, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("head", -1) end) end)
 RegisterKeyBind(Key.F11, function() ExecuteInGameThread(function() cycleExtras(1) end) end)
-LoopAsync(250, function() if next(S.shields) then ExecuteInGameThread(function() local ok, e = pcall(tickShields) if not ok and not S.tsErr then S.tsErr = true log("tickShields error: "..tostring(e)) end end) end return false end)
+LoopAsync(50, function() if next(S.shields) then ExecuteInGameThread(function() local ok, e = pcall(tickShields) if not ok and not S.tsErr then S.tsErr = true log("tickShields error: "..tostring(e)) end end) end return false end)

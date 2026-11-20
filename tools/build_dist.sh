@@ -7,7 +7,7 @@ else echo "WARNING: luac not found, Lua syntax not checked"; fi
 UE=experimental-latest; TESTED=UE4SS_v4.0.0-6-gef15eba8.zip  # the loader version the mod is tested with
 # UE4SS_ZIP=/path/to/UE4SS_v*.zip pins a local copy (the experimental release only keeps its newest build)
 ASSET=$(gh release view $UE -R UE4SS-RE/RE-UE4SS --json assets -q '.assets[].name' | grep -E '^UE4SS_v.*\.zip$' | head -1)
-rm -rf build && mkdir -p build/dl build/pkg/payload dist
+rm -rf build/dl build/pkg && mkdir -p build/dl build/pkg/payload dist
 if [ -n "$UE4SS_ZIP" ]; then ASSET=$(basename "$UE4SS_ZIP"); mkdir -p build/dl; cp "$UE4SS_ZIP" build/dl/; else gh release download $UE -R UE4SS-RE/RE-UE4SS -p "$ASSET" -D build/dl; fi
 [ "$ASSET" != "$TESTED" ] && echo "WARNING: packaging $ASSET, tested with $TESTED"
 unzip -oq "build/dl/$ASSET" -d build/pkg/payload
