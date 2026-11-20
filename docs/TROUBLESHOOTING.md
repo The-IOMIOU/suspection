@@ -50,6 +50,8 @@ avoids loading assets mid-mission because that crashed in testing, but other cau
 
 ## Nothing happens / it plays like normal Ready or Not
 
+- `UE4SS.log` has `Error loading script: ...RonSuspect...main.lua`: the mod file is broken (this was v0.12.2). Install the newest release.
+
 - `UE4SS.log` has no `[SuspectMode]` lines: the mod isn't installed in the right folder. Re-run `install.bat` and give it
   the folder that contains `ReadyOrNot` (the one Steam's "Browse local files" opens).
 - `[SuspectMode] ... loaded` is there but nothing happens: check `Enabled` in the F8 menu, or press F7 (host).

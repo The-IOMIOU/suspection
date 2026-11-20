@@ -74,8 +74,7 @@ local function asset(path, noLoad)
   if noLoad or S.loadTried[path] then return nil end
   S.loadTried[path] = true
   local where = "?" pcall(function() where = FindFirstOf("World"):GetFName():ToString() end)
-  print("[SuspectMode] loading "..path.." (map "..where..")
-")
+  log("loading "..path.." (map "..where..")")
   pcall(function() LoadAsset(path) end) a = StaticFindObject(path)  -- full object path loads it
   if not valid(a) then pcall(function() LoadAsset((path:gsub("%.[^.]+$",""))) end) a = StaticFindObject(path) end
   return valid(a) and a or nil
@@ -1151,7 +1150,7 @@ RegisterKeyBind(Key.UP_ARROW, function() if M.open then ExecuteInGameThread(func
 RegisterKeyBind(Key.DOWN_ARROW, function() if M.open then ExecuteInGameThread(function() M.sel = M.sel % #ROWS + 1 pcall(menuRefresh) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() LP.sel = LP.sel % 3 + 1 pcall(lookRefresh) end) end end)
 RegisterKeyBind(Key.LEFT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, -1) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() pcall(lookChange, -1) end) end end)
 RegisterKeyBind(Key.RIGHT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, 1) end) elseif S.lookPanelOpen then ExecuteInGameThread(function() pcall(lookChange, 1) end) end end)
-log("v0.12.2 loaded")
+log("v0.12.3 loaded")
 RegisterKeyBind(Key.F9, function() ExecuteInGameThread(function() cycle("body", 1) end) end)
 RegisterKeyBind(Key.F9, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("body", -1) end) end)
 RegisterKeyBind(Key.F10, function() ExecuteInGameThread(function() cycle("head", 1) end) end)

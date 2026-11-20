@@ -2,7 +2,11 @@
 
 Download any version from the [Releases page](../../releases). Every player installs the same version.
 
-## v0.12.2 - Station hub crash fix
+## v0.12.3 - Fix for v0.12.2
+- v0.12.2 had a syntax error in `main.lua`, so the mod didn't load at all (no F8 menu, everything off). Fixed.
+- The build script now refuses to package a mod that doesn't compile (`luac -p`).
+
+## v0.12.2 - Station hub crash fix (BROKEN, use v0.12.3)
 - Fixes a crash in the police station hub: the mod force-loaded suspect outfit assets there (the log showed 5 loads, then
   the crash). Outfit assets now load only on the loadout screen and in the pre-mission van, never in the hub or a mission.
 - Every asset is loaded at most once per session, and each load is logged as `[SuspectMode] loading <asset> (map <map>)`,
