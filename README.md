@@ -1,60 +1,81 @@
-# Suspection — Suspect Mode for Ready or Not
+# Suspection: Suspect Mode for Ready or Not
 
-**Hold the building while the AI comes for you, in Ready or Not.** You get a setup phase, then armed enemies are sent in waves until you survive the timer, kill enough of them, or go down.
-It's a UE4SS Lua mod and the host runs the logic. Everyone installs the same zip.
+**Flip Ready or Not around. You and your friends are the suspects. An armoured SWAT team breaches the building to
+take you down.** Dig in during the setup phase, grab a human shield, protect your VIP, and wipe out the team.
 
-> Status: **v0.12 is released**: suspect character look inside the vanilla loadout screen, suspects in the van intro. v0.11: the loadout offers only suspect weapons by default (menu toggle). v0.10: suspect arsenal in the vanilla loadout screen, police gear removed, menu restyled like the game's own UI. Before that, v0.9 (F8 menu), v0.8: in-game settings menu (F8 + chat), armoured SWAT, no AI squad, win when the SWAT team is down. Before that, v0.7: the ballistic shield is now a person (no hotkey), SWAT objectives and report prompts are gone. v0.6 added AI suspect helpers and protect-the-VIP. Before that, v0.5: suspect look editor (F9/F10/F11), no reporting, plus everything from v0.4 (presets, eliminate mode, SWAT voices, aim slider, players dressed as suspects).
-> Tested solo on one map only. Co-op is untested. See [docs/HANDOFF.md](docs/HANDOFF.md) for exactly what is verified.
-> Built with AI (Claude Code). If you are taking over, human or agent, start at [docs/HANDOFF.md](docs/HANDOFF.md). The wish-list is in [docs/ROADMAP.md](docs/ROADMAP.md).
+It works in Steam co-op, and it plugs into the game's own screens: the normal loadout offers suspect weapons, your
+character preview is a suspect you can customise, and the van intro shows your crew as suspects.
 
-## What it does on `main`
-| Feature | Details |
+> **Status: v0.12.1.** Tested solo on the Gas Station map. Co-op with two real players is built but not fully tested.
+> Built with AI (Claude Code). Unofficial; not affiliated with VOID Interactive.
+
+---
+
+## Quick start
+
+1. Download the newest `SuspectMode_v*.zip` from **[Releases](../../releases)**.
+2. Unzip it and double-click **`install.bat`** (every player).
+3. Launch Ready or Not and play co-op as usual. Press **F8** in game for the menu.
+
+Uninstall: run `uninstall.bat`. Problems: see **[Troubleshooting](docs/TROUBLESHOOTING.md)**.
+
+## Documentation
+
+| Read this | If you want to |
 |---|---|
-| Enemies that shoot | `EnemyMode = "hunters"` (default): hostile AI from the map's own spawners is dropped 25-45 m from a player and attacks. Your AI squad is removed. |
-| Enemies look like SWAT | SWAT uniform, masked helmet head, plate carrier and ballistic helmet on every enemy (v0.8). Your AI squad is deleted. |
-| Main mode + presets | `Preset = "standard"`: one SWAT team (6 + 2 per player) breaches, eliminate them all. Also `easy`, `hardcore`, `survival` (timer + waves) and `custom` (config.lua as written). |
-| SWAT voices and aim | `SwatVoices`: enemies use the SWAT squad's voice lines. `EnemyAccuracy` (0..1, standard 0.55) nerfs their aim. |
-| You look like a suspect | `DressPlayersAsSuspects`: your SWAT outfit parts and helmet are hidden and you wear a real suspect body and head, captured from the map's suspects and saved in `looks.txt`. Armour stays on top (`DressKeepArmor`). `SuspectLook = n` picks a fixed look. |
-| Character look | Open the normal **loadout** screen: the preview is your suspect, and a **CHARACTER LOOK** panel (game style) sits on the right. **Up/Down** picks BODY / HEAD / GEAR, **Left/Right** changes it live (mix any head with any body; gear = none, armour, helmet, both). Saved in `mylook.txt` and synced to your friend. F9/F10/F11 still work in game. Looks come from suspects you have met (`looks.txt`). |
-| Van intro | The pre-mission van shows your crew as suspects, not the SWAT squad. |
-| No reporting | `NoReporting`: suspects don't call TOC. No "Report" prompt on bodies, arrests or props, and the map's SWAT objectives (report the manager, rescue civilians, ...) are hidden and can't end the mission. |
-| Human shield | Equip your **ballistic shield** within 3 m of a civilian: the shield is swapped for that person. They stand upright in front of you, hands up, in the game's own hostage animation, and SWAT hold fire for `ShieldSeconds` (20). Switch to any other item to let go. `ShieldCooldown` (30) between grabs. Without a civilian nearby it's a normal shield. |
-| Protect the VIP | `ProtectVIP`: at the breach a civilian near you becomes the VIP. SWAT hunt them too, and you lose if they die. |
-| Breach grace | `BreachGrace` (default 10 s): enemies stay blind for a moment after the breach. |
-| Moved start | `SpawnAway`: you are moved away from the entry point when the mission starts. |
-| Setup phase | `PrepSeconds` (default 60): you can't be hurt and the enemies are blind. |
-| Waves | Enemies are topped up to `SwatBase + SwatPerPlayer * players` at the breach. Then `ReinforceWaves` waves of `ReinforceSize` arrive every `ReinforceEvery` seconds. |
-| Win and lose | `timer`: survive `SurviveSeconds`. `kills`: kill `KillTarget` enemies. Wiping them all out also wins. You lose when every player is down. |
-| Tougher players | Damage you take is divided by `SuspectHealthMult` (default 2.5). Stuns are cut short after `StunMaxSeconds`. |
-| Suspect loadout | The game's own loadout screen now offers the suspect-only guns the game ships: AK-102, AK-103, AR-18, FAL, G3A3, M14, M16A4, M4A1, M76, MPL, Saiga-12, 870, TAC-700, VKS; M1911, M2011, M92FS, P250, P99; and real frag grenades. Police less-lethal gear (flashbangs, stingers, CS, 9-Banger, M320/M32 launchers, pepper spray, Taser) is removed. **Suspect weapons only** (F8 menu, default ON) limits primaries/secondaries to the suspect guns; turn it OFF to get the vanilla guns too. `SuspectArsenal`, `SuspectWeaponsOnly`. |
-| Settings menu | **F8** opens an on-screen menu (any player). **Up/Down** picks a setting, **Left/Right** changes it, **F8** closes. The host's game saves it (`settings.txt`); a friend's change is sent to the host. Chat still works too: `!set EnemyAccuracy 0.4`, `!preset hardcore`, `!menu`. |
-| Chat HUD | Countdown and status in the in-game chat. The host's **F7** toggles the mode. |
-| Old team swap | `EnemyMode = "swat"` puts players on the suspect team, as in v0.1. The SWAT AI does not shoot players, so this mode has no real enemy. |
+| **[Player guide](docs/PLAYER_GUIDE.md)** | Install it, learn the controls, understand every feature |
+| **[Settings](docs/SETTINGS.md)** | Know what every setting and preset does |
+| **[Troubleshooting](docs/TROUBLESHOOTING.md)** | Fix a crash or something that doesn't work, find the logs |
+| **[Changelog](CHANGELOG.md)** | See what changed in each version |
+| **[How it works](docs/ARCHITECTURE.md)** | Understand the mod's design and code |
+| **[Handoff](docs/HANDOFF.md)** | Continue development (dev setup, test loop, what's verified) |
+| **[Engine notes](docs/ENGINE_NOTES.md)** | Look up Ready or Not classes and fields the mod uses |
+| **[Roadmap](docs/ROADMAP.md)** | See what's planned |
 
-It needs a mission that has AI spawners (any normal mission). All settings are in `config.lua`, each with a comment.
+## Features
 
-## Install (every player)
-1. Download the latest `SuspectMode_*.zip` from [Releases](../../releases) and unzip it. To try unreleased `main`, build the zip with `tools/build_dist.sh`.
-2. Double-click `install.bat`. It finds the game folder or asks for it, then copies UE4SS and the mod into `ReadyOrNot\Binaries\Win64`.
-3. Host co-op as usual. The **host's** `ue4ss\Mods\RonSuspect\Scripts\config.lua` is the one that counts.
+| | |
+|---|---|
+| **You are the suspects** | Suspect outfits for you and your friends, a suspect crew in the van intro, "SUSPECTS" on the pre-mission screen |
+| **Character look** | In the normal loadout screen: pick body, head and gear (armour/helmet) with a live preview, synced to friends |
+| **Suspect arsenal** | The loadout offers the suspect-only guns the game ships (AK-102/103, FAL, G3A3, M14, MPL, Saiga-12, 1911s...) and real frag grenades. Police less-lethal gear is removed |
+| **Armoured SWAT enemy** | Uniform, masked helmet, plate carrier, SWAT voices. Team size scales with players (6 + 2 per player) |
+| **Rounds** | Setup phase (you can't be hurt), breach with a short grace, SWAT hunt you, eliminate them to win. Also timer and kill-count modes |
+| **Human shield** | Equip your ballistic shield next to a civilian: they stand in front of you, hands up, and SWAT hold fire for 20 s |
+| **Protect the VIP** | A civilian becomes the VIP; SWAT hunt them too, you lose if they die |
+| **Balance** | You take less damage, stuns are short, SWAT aim is adjustable. Presets: standard, easy, hardcore, survival, custom |
+| **No police stuff** | No reporting to TOC, no SWAT objectives, no flashbangs |
+| **In-game menu** | F8 opens a menu in the game's own style to change everything, for the host and the friend |
 
-`uninstall.bat` removes `dwmapi.dll` and the `ue4ss` folder.
+## Controls
 
-Requirements: Ready or Not on Steam.
+| Key | What it does |
+|---|---|
+| **F8** | Open / close the Suspect Mode menu |
+| **Arrow keys** | Navigate the menu, or the CHARACTER LOOK panel in the loadout screen |
+| **F7** (host) | Turn the mode on / off |
+| **F9 / F10 / F11** | Change body / head / gear in a mission (Shift = previous) |
+| **Ballistic shield** next to a civilian | Human shield |
 
-## Repo layout
+## Requirements
+
+- Ready or Not on Steam (PC), the same game version for every player.
+- Every player installs the same Suspect Mode version.
+- The game has no anti-cheat, and the developers support mods; still, only play modded with friends who also run the mod.
+
+## Repository layout
+
 ```
-mod/RonSuspect/Scripts/   main.lua (the mode), config.lua (settings)   <- the shipped mod
-installer/                install.bat, uninstall.bat, README.txt        <- go into the release zip
-tools/build_dist.sh       downloads UE4SS, builds dist/SuspectMode_<ver>.zip
-dev/RonBridge/            dev-only Lua REPL mod (never ship it)
-dev/q.sh                  sends Lua to the running game through RonBridge
-dev/winshot.ps1           screenshots the game window (PrintWindow, works on D3D12)
-dev/recon/                scripts used to reverse the game (class dump, signatures, map list, team swap tests)
-docs/                     HANDOFF.md, ENGINE_NOTES.md, ROADMAP.md
+mod/RonSuspect/Scripts/   main.lua (the mod), config.lua (default settings)
+installer/                install.bat, uninstall.bat, README.txt (go into the release zip)
+tools/build_dist.sh       builds the release zip (UE4SS + mod + installer)
+dev/                      dev-only tools: Lua bridge into the live game, screenshots, recon scripts
+docs/                     player guide, settings, troubleshooting, architecture, handoff, engine notes, roadmap
 ```
 
 ## Credits
-- [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) (MIT) is the loader, bundled in the release zip.
-- Ready or Not belongs to VOID Interactive. This repo contains no game files, extracted assets or decompiled code.
+
+- [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) (MIT): the mod loader, bundled in the release zip.
+- Ready or Not belongs to VOID Interactive. This repository contains no game files, extracted assets or decompiled code.
+  All weapons, outfits and animations used are the game's own, loaded from your installed copy.
 - Built with Claude Code.

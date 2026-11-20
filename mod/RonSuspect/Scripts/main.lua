@@ -1102,6 +1102,16 @@ end
 
 LoopAsync(500, function() ExecuteInGameThread(function()
   local ok,e=pcall(tick) if not ok then log("tick error: "..tostring(e)) end
+  -- Main menu: only the loadout lists and the F8 menu. A friend's game crashed ~5 s into the main menu (no error
+  -- line), so nothing touches the menu scene (its characters, labels or assets) any more.
+  local atMenu = false
+  pcall(function() local w = FindFirstOf("World") atMenu = (not valid(w)) or w:GetFullName():find("/Menu/") ~= nil end)
+  if atMenu then
+    if not S.menuLogged then S.menuLogged = true log("main menu: scene untouched (safe mode)") end
+    local okA, eA = pcall(arsenal) if not okA then log("arsenal error: "..tostring(eA)) end
+    return
+  end
+  S.menuLogged = false
   ok,e=pcall(dressHunters) if not ok then log("dress error: "..tostring(e)) end  -- every machine, not just the host
   if cfg.NoReporting ~= false and isHost() then ok,e=pcall(noReports) if not ok then log("noReports error: "..tostring(e)) end end
   pcall(readChatLooks)
