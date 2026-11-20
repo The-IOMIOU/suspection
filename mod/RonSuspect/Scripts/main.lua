@@ -1,7 +1,7 @@
 -- SUSPECT MODE v0.10 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
-local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true,SuspectArsenal=true,Helpers=0,ProtectVIP=true,ShieldSeconds=20,ShieldCooldown=30}
+local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true,SuspectArsenal=true,SuspectWeaponsOnly=true,Helpers=0,ProtectVIP=true,ShieldSeconds=20,ShieldCooldown=30}
 local okc, cfg = pcall(dofile, dir.."config.lua"); if not okc or type(cfg)~="table" then cfg = {Enabled=true,PrepSeconds=60,WinMode="timer",SurviveSeconds=600,KillTarget=4,SuspectHealthMult=2.5,StunResist=true,StunMaxSeconds=0.75,AnnounceEvery=60,SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,ToggleKey="F7",StatusKey="F8"} end
 for k,v in pairs(DEF) do if cfg[k]==nil then cfg[k]=v end end  -- old config.lua files keep working
 -- Presets: Preset = "standard" | "easy" | "hardcore" | "survival" | "custom". A preset overrides the matching
@@ -702,7 +702,7 @@ end
 local SETTINGS_FILE = dir.."settings.txt"
 local MENU_KEYS = {"Preset","WinMode","SwatBase","SwatPerPlayer","EnemyAccuracy","SuspectHealthMult","PrepSeconds",
   "SurviveSeconds","KillTarget","ReinforceEvery","ReinforceSize","ReinforceWaves","BreachGrace","ProtectVIP",
-  "ShieldSeconds","ShieldCooldown","StunResist","SwatVoices","DressPlayersAsSuspects","DressEnemiesAsSwat","NoReporting"}
+  "ShieldSeconds","ShieldCooldown","StunResist","SwatVoices","DressPlayersAsSuspects","DressEnemiesAsSwat","NoReporting","SuspectWeaponsOnly"}
 local function parseVal(v)
   if v == "true" or v == "on" then return true elseif v == "false" or v == "off" then return false end
   return tonumber(v) or v
@@ -771,6 +771,7 @@ local ROWS = {
   {"SwatVoices", "SWAT voices", "bool"},
   {"DressPlayersAsSuspects", "You look like suspects", "bool"},
   {"DressEnemiesAsSwat", "Enemies look like SWAT", "bool"},
+  {"SuspectWeaponsOnly", "Suspect weapons only (loadout)", "bool"},
   {"NoReporting", "No reporting / SWAT objectives", "bool"},
 }
 local M = { w = nil, open = false, sel = 1, vals = {}, labels = {}, head = nil }
@@ -803,7 +804,7 @@ local function menuBuild()
   local blur = new("BackgroundBlur"); pcall(function() blur:SetBlurStrength(12) end)   -- frosted panel like the game's menus
   local border = new("Border"); border:SetBrushColor({R=0.012,G=0.012,B=0.014,A=0.9}); pcall(function() border:SetPadding({Left=34,Top=26,Right=34,Bottom=24}) end)
   blur:SetContent(border)
-  local slot = canvas:AddChildToCanvas(blur); slot:SetPosition({X=60, Y=110}); slot:SetSize({X=720, Y=660})
+  local slot = canvas:AddChildToCanvas(blur); slot:SetPosition({X=60, Y=110}); slot:SetSize({X=720, Y=690})
   local vb = new("VerticalBox"); border:SetContent(vb)
   local function text(str, col, size, face)
     local t = new("TextBlock"); t:SetText(FText(str)); t:SetColorAndOpacity(col)
@@ -849,7 +850,7 @@ local function menuChange(dir)
   elseif type(row[3]) == "table" then local i = 1 for j,o in ipairs(row[3]) do if o == v then i = j end end
     v = row[3][((i - 1 + dir) % #row[3]) + 1]
   else v = math.max(row[4], math.min(row[5], (tonumber(v) or 0) + dir * row[3])); v = math.floor(v * 100 + 0.5) / 100 end
-  if isHost() then
+  if isHost() or S.phase == "idle" then  -- host, or not in a match (main menu / station): your own saved settings
     if k == "Preset" then applyPreset(v) else cfg[k] = v end
     saveSettings()
   else
@@ -884,42 +885,50 @@ local ARSENAL = {
 local POLICE_ONLY = {"Deployable_M32A1_Gas","Grenade_9Banger","Device_Pepperspray","Device_Taser7","Grenade_CSGas_V2","Grenade_Flashbang_V2",
                      "Grenade_Stinger_V2","Launcher_M320_Bang","Launcher_M320_Gas","Launcher_M320_Stinger"}
 S.arsenalDone = nil
+-- SuspectWeaponsOnly (menu, default ON): primary/secondary lists hold only the suspect guns; OFF = vanilla guns +
+-- suspect guns. Police gear is out either way. Re-applied whenever the setting changes (outside missions).
 local function arsenal()
   if cfg.SuspectArsenal == false then return end
   local lm = FindFirstOf("LoadoutManager"); if not valid(lm) then return end
-  if S.arsenalDone == lm:GetFullName() then return end
-  local added = 0
-  for _,grp in ipairs(ARSENAL) do
-    local arr = lm[grp[1]]; local have = {}
-    for i = 1, #arr do pcall(function() have[arr[i]:GetFName():ToString()] = true end) end
-    for _,name in ipairs(grp[3]) do
-      local path = WR..name.."."..name.."_C"
-      local cls = StaticFindObject(path)
-      if not valid(cls) then pcall(function() LoadAsset(path) end) cls = StaticFindObject(path) end
-      if valid(cls) then local cdo = cls:GetCDO()
-        if valid(cdo) and not have[cdo:GetFName():ToString()] then
-          pcall(function() if (cdo.CategoryFlags or 0) == 0 then cdo.CategoryFlags = grp[2] end end)
-          pcall(function() cdo.bShowInLoadout = true end)
-          arr[#arr + 1] = cdo
-          local li = lm.LoadoutItems; li[#li + 1] = cdo
-          pcall(function() lm.ItemLookupMap:Add(FName(cdo.LookupTableIdx:ToString()), cdo) end)
-          added = added + 1
+  local key = lm:GetFullName().."|"..tostring(cfg.SuspectWeaponsOnly ~= false)
+  if S.arsenalDone == key then return end
+  if S.arsenalLM ~= lm:GetFullName() then  -- first time for this LoadoutManager: snapshot vanilla, load suspect items
+    S.arsenalLM = lm:GetFullName(); S.vanilla = {}; S.suspectCdos = {}
+    for _,listName in ipairs({"PrimaryWeapons","SecondaryWeapons","LongTacticalItems","TacticalItems"}) do
+      local arr = lm[listName]; local t = {} for i = 1, #arr do t[#t+1] = arr[i] end S.vanilla[listName] = t; S.suspectCdos[listName] = {} end
+    for _,grp in ipairs(ARSENAL) do
+      for _,name in ipairs(grp[3]) do
+        local path = WR..name.."."..name.."_C"
+        local cls = StaticFindObject(path)
+        if not valid(cls) then pcall(function() LoadAsset(path) end) cls = StaticFindObject(path) end
+        if valid(cls) then local cdo = cls:GetCDO()
+          if valid(cdo) then
+            pcall(function() if (cdo.CategoryFlags or 0) == 0 then cdo.CategoryFlags = grp[2] end end)
+            pcall(function() cdo.bShowInLoadout = true end)
+            table.insert(S.suspectCdos[grp[1]], cdo)
+            local li = lm.LoadoutItems; li[#li + 1] = cdo
+            pcall(function() lm.ItemLookupMap:Add(FName(cdo.LookupTableIdx:ToString()), cdo) end)
+          end
         end
       end
     end
   end
-  -- Police gear: the loadout screen ignores bShowInLoadout, so the category lists are rebuilt without it
-  -- (Empty + re-add). LoadoutItems / ItemLookupMap keep them, so old saved loadouts still resolve.
-  local hidden = 0
+  local only = cfg.SuspectWeaponsOnly ~= false
+  local counts = {}
   for _,listName in ipairs({"PrimaryWeapons","SecondaryWeapons","LongTacticalItems","TacticalItems"}) do pcall(function()
-    local arr = lm[listName]; local keep = {}
-    for i = 1, #arr do local o = arr[i]; local n = o:GetFName():ToString(); local police = false
-      for _,pn in ipairs(POLICE_ONLY) do if n:find(pn, 1, true) then police = true end end
-      if police then hidden = hidden + 1 else keep[#keep+1] = o end end
-    if #keep < #arr then arr:Empty() for i,o in ipairs(keep) do arr[i] = o end end
+    local items = {}
+    local weaponList = listName == "PrimaryWeapons" or listName == "SecondaryWeapons"
+    if not (only and weaponList) then
+      for _,o in ipairs(S.vanilla[listName]) do local n = o:GetFName():ToString(); local police = false
+        for _,pn in ipairs(POLICE_ONLY) do if n:find(pn, 1, true) then police = true end end
+        if not police then items[#items+1] = o end end
+    end
+    for _,o in ipairs(S.suspectCdos[listName]) do items[#items+1] = o end
+    local arr = lm[listName]; arr:Empty(); for i,o in ipairs(items) do arr[i] = o end
+    counts[#counts+1] = listName:gsub("Weapons",""):gsub("Items","").." "..#items
   end) end
-  S.arsenalDone = lm:GetFullName()
-  log(("suspect arsenal: %d weapons added to the loadout, %d police items hidden"):format(added, hidden))
+  S.arsenalDone = key
+  log(("loadout: %s (%s)"):format(only and "suspect weapons only" or "all weapons", table.concat(counts, ", ")))
 end
 
 local function win(reason)
