@@ -1,7 +1,7 @@
--- SUSPECT MODE v0.9 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
+-- SUSPECT MODE v0.10 for Ready or Not (UE4SS Lua). Host-authoritative: the host's game swaps every
 -- player to TT_SUSPECT, so AI suspects become your allies and the SWAT AI squad hunts you.
 local dir = debug.getinfo(1,"S").source:gsub("^@",""):gsub("main%.lua$","")
-local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true,Helpers=0,ProtectVIP=true,ShieldSeconds=20,ShieldCooldown=30}
+local DEF = {SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,SwatIntelEvery=20,SpawnAway=true,EnemyMode="hunters",HunterDropMin=2500,HunterDropMax=4500,BreachGrace=10,DressEnemiesAsSwat=true,SuspectArsenal=true,Helpers=0,ProtectVIP=true,ShieldSeconds=20,ShieldCooldown=30}
 local okc, cfg = pcall(dofile, dir.."config.lua"); if not okc or type(cfg)~="table" then cfg = {Enabled=true,PrepSeconds=60,WinMode="timer",SurviveSeconds=600,KillTarget=4,SuspectHealthMult=2.5,StunResist=true,StunMaxSeconds=0.75,AnnounceEvery=60,SwatBase=6,SwatPerPlayer=2,SwatMax=24,ReinforceEvery=120,ReinforceSize=2,ReinforceWaves=3,ToggleKey="F7",StatusKey="F8"} end
 for k,v in pairs(DEF) do if cfg[k]==nil then cfg[k]=v end end  -- old config.lua files keep working
 -- Presets: Preset = "standard" | "easy" | "hardcore" | "survival" | "custom". A preset overrides the matching
@@ -776,17 +776,21 @@ local ROWS = {
 local M = { w = nil, open = false, sel = 1, vals = {}, labels = {}, head = nil }
 local function fmtVal(v) if type(v) == "boolean" then return v and "ON" or "OFF" end if type(v) == "number" then return (math.floor(v) == v) and tostring(math.floor(v)) or string.format("%.2f", v) end return tostring(v) end
 local function C(r,g,b,a) return {SpecifiedColor={R=r,G=g,B=b,A=a or 1}, ColorUseRule=0} end
+-- Vanilla look: Ready or Not panels are dark translucent boxes, white Barlow headings over a thin red rule, small
+-- uppercase grey labels, the selection as a dark-red bar, and key hints with the key in red.
+local RED, WHITE, GREY, DIM = C(0.86,0.16,0.14), C(0.95,0.95,0.95), C(0.62,0.62,0.62), C(0.42,0.42,0.42)
+local FONT = "/Game/ReadyOrNot/Fonts/Barlow/Barlow.Barlow"
 local function menuRefresh()
   if not M.w then return end
   for i,row in ipairs(ROWS) do local on = i == M.sel
     pcall(function()
-      M.labels[i]:SetText(FText((on and "> " or "   ")..row[2]))
-      M.labels[i]:SetColorAndOpacity(on and C(1,0.8,0.2) or C(0.85,0.85,0.85))
-      M.vals[i]:SetText(FText(on and ("<  "..fmtVal(cfg[row[1]]).."  >") or fmtVal(cfg[row[1]])))
-      M.vals[i]:SetColorAndOpacity(on and C(1,0.8,0.2) or C(0.55,0.85,1))
+      M.rows[i]:SetBrushColor(on and {R=0.55,G=0.06,B=0.05,A=0.55} or {R=0,G=0,B=0,A=0})
+      M.labels[i]:SetColorAndOpacity(on and WHITE or GREY)
+      M.vals[i]:SetText(FText(on and ("<   "..fmtVal(cfg[row[1]]):upper().."   >") or fmtVal(cfg[row[1]]):upper()))
+      M.vals[i]:SetColorAndOpacity(on and WHITE or C(0.85,0.85,0.85))
     end)
   end
-  pcall(function() M.head:SetText(FText(("phase: %s    SWAT alive: %d    down: %d    %s"):format(S.phase, swatAlive(), swatDead(), isHost() and "you are HOST" or "host decides"))) end)
+  pcall(function() M.head:SetText(FText(("%s   |   SWAT ALIVE %d   |   DOWN %d   |   %s"):format(S.phase:upper(), swatAlive(), swatDead(), isHost() and "HOST" or (valid(FindFirstOf("ReadyOrNotGameState")) and S.phase ~= "idle" and "CLIENT - HOST DECIDES" or "NOT IN A MATCH")))) end)
 end
 local function menuBuild()
   local pc = localPC(); if not pc then return false end
@@ -794,28 +798,44 @@ local function menuBuild()
   if not valid(w) then return false end
   local function new(cls, outer) return StaticConstructObject(StaticFindObject("/Script/UMG."..cls), outer or w.WidgetTree) end
   w.WidgetTree = StaticConstructObject(StaticFindObject("/Script/UMG.WidgetTree"), w)
+  local font = asset(FONT, true)
   local canvas = new("CanvasPanel"); w.WidgetTree.RootWidget = canvas
-  local border = new("Border"); border:SetBrushColor({R=0.01,G=0.01,B=0.015,A=0.9}); pcall(function() border:SetPadding({Left=28,Top=20,Right=28,Bottom=20}) end)
-  local slot = canvas:AddChildToCanvas(border); slot:SetPosition({X=70, Y=90}); slot:SetSize({X=760, Y=700})
+  local blur = new("BackgroundBlur"); pcall(function() blur:SetBlurStrength(12) end)   -- frosted panel like the game's menus
+  local border = new("Border"); border:SetBrushColor({R=0.012,G=0.012,B=0.014,A=0.9}); pcall(function() border:SetPadding({Left=34,Top=26,Right=34,Bottom=24}) end)
+  blur:SetContent(border)
+  local slot = canvas:AddChildToCanvas(blur); slot:SetPosition({X=60, Y=110}); slot:SetSize({X=720, Y=660})
   local vb = new("VerticalBox"); border:SetContent(vb)
-  local function text(str, col, size)
+  local function text(str, col, size, face)
     local t = new("TextBlock"); t:SetText(FText(str)); t:SetColorAndOpacity(col)
-    pcall(function() local f = t.Font f.Size = size t:SetFont(f) end) return t
+    pcall(function() local f = t.Font f.Size = size if font then f.FontObject = font f.TypefaceFontName = FName(face or "Regular") end t:SetFont(f) end)
+    return t
   end
-  vb:AddChildToVerticalBox(text("SUSPECT MODE", C(1,0.28,0.18), 30))
-  M.head = text("", C(0.6,0.6,0.6), 14); vb:AddChildToVerticalBox(M.head)
-  vb:AddChildToVerticalBox(text(" ", C(1,1,1), 8))
+  local function rule(col, h)  -- thin coloured line
+    local sz = new("SizeBox"); pcall(function() sz:SetHeightOverride(h) end)
+    local b = new("Border"); b:SetBrushColor(col); sz:SetContent(b)
+    local sl = vb:AddChildToVerticalBox(sz); pcall(function() sl:SetPadding({Left=0,Top=4,Right=0,Bottom=6}) end)
+  end
+  vb:AddChildToVerticalBox(text("SUSPECT MODE", WHITE, 30, "SemiBold"))
+  rule({R=0.86,G=0.16,B=0.14,A=1}, 2)
+  M.head = text("", DIM, 12, "Medium"); vb:AddChildToVerticalBox(M.head)
+  vb:AddChildToVerticalBox(text(" ", WHITE, 6))
+  M.rows = {}
   for i,row in ipairs(ROWS) do
-    local hb = new("HorizontalBox")
-    local sz = new("SizeBox"); pcall(function() sz:SetWidthOverride(430) end)
-    M.labels[i] = text(row[2], C(0.85,0.85,0.85), 17); sz:SetContent(M.labels[i])
+    local rb = new("Border"); rb:SetBrushColor({R=0,G=0,B=0,A=0}); pcall(function() rb:SetPadding({Left=10,Top=3,Right=10,Bottom=3}) end)
+    local hb = new("HorizontalBox"); rb:SetContent(hb)
+    local sz = new("SizeBox"); pcall(function() sz:SetWidthOverride(400) end)
+    M.labels[i] = text(row[2]:upper(), GREY, 15, "Medium"); sz:SetContent(M.labels[i])
     hb:AddChildToHorizontalBox(sz)
-    M.vals[i] = text("", C(0.55,0.85,1), 17); hb:AddChildToHorizontalBox(M.vals[i])
-    vb:AddChildToVerticalBox(hb)
+    M.vals[i] = text("", WHITE, 15, "SemiBold"); hb:AddChildToHorizontalBox(M.vals[i])
+    vb:AddChildToVerticalBox(rb); M.rows[i] = rb
   end
-  vb:AddChildToVerticalBox(text(" ", C(1,1,1), 8))
-  vb:AddChildToVerticalBox(text("Up / Down: pick    Left / Right: change    F8: close", C(0.6,0.6,0.6), 14))
-  vb:AddChildToVerticalBox(text("Saved on the host. Team size, timers and presets apply from the next mission.", C(0.45,0.45,0.45), 12))
+  vb:AddChildToVerticalBox(text(" ", WHITE, 8))
+  rule({R=0.3,G=0.3,B=0.3,A=0.6}, 1)
+  local keys = new("HorizontalBox")
+  for _,kv in ipairs({{"UP/DOWN"," SELECT     "},{"LEFT/RIGHT"," CHANGE     "},{"F8"," CLOSE"}}) do
+    keys:AddChildToHorizontalBox(text(kv[1], RED, 13, "SemiBold")); keys:AddChildToHorizontalBox(text(kv[2], GREY, 13, "Medium")) end
+  vb:AddChildToVerticalBox(keys)
+  vb:AddChildToVerticalBox(text("SAVED ON THE HOST. TEAM SIZE, TIMERS AND PRESETS APPLY FROM THE NEXT MISSION.", DIM, 11, "Medium"))
   M.w = w; return true
 end
 local function menuToggle()
@@ -840,6 +860,67 @@ local function menuChange(dir)
   menuRefresh()
 end
 S.menu = M
+
+-- Vanilla UI wording: a few labels say S.W.A.T. where the players are now the suspects.
+local UI_TEXT = { ["S.W.A.T."] = "SUSPECTS", ["SWAT"] = "SUSPECTS" }
+local function uiText()
+  if cfg.Enabled == false then return end
+  for _,t in ipairs(list("TextBlock")) do pcall(function()
+    local r = UI_TEXT[t:GetText():ToString()]; if r then t:SetText(FText(r)) end end) end
+end
+
+-- ===== SUSPECT ARSENAL (vanilla loadout screen) =============================================================
+-- The game ships weapons only suspects use (AKs, FAL, G3, M14, MPL, Saiga, 1911s, real frags...). They are added
+-- to the game's own LoadoutManager lists, so they appear in the normal loadout screen like any other gun, and the
+-- police less-lethal gear is hidden (bShowInLoadout = false). Every machine does it the same way (items are keyed by
+-- name in ItemLookupMap, not by position), and only outside missions, because loading assets mid-mission crashed.
+local WR = "/Game/Blueprints/Items/WeaponsRevised/"
+local ARSENAL = {
+  {"PrimaryWeapons", 1, {"Primary_AK102","Primary_AK103","Primary_AR18","Primary_FAL","Primary_G3A3","Primary_M14","Primary_M16A4",
+                         "Primary_M4A1","Primary_M76","Primary_MPL","Primary_Saiga12","Primary_870mcs","Primary_TAC700","Primary_VKS"}},
+  {"SecondaryWeapons", 2, {"Secondary_M1911_V2","Secondary_M2011","Secondary_M92FS_V2","Secondary_P250","Secondary_P99"}},
+  {"TacticalItems", 16, {"Grenade_Frag"}},
+}
+local POLICE_ONLY = {"Deployable_M32A1_Gas","Grenade_9Banger","Device_Pepperspray","Device_Taser7","Grenade_CSGas_V2","Grenade_Flashbang_V2",
+                     "Grenade_Stinger_V2","Launcher_M320_Bang","Launcher_M320_Gas","Launcher_M320_Stinger"}
+S.arsenalDone = nil
+local function arsenal()
+  if cfg.SuspectArsenal == false then return end
+  local lm = FindFirstOf("LoadoutManager"); if not valid(lm) then return end
+  if S.arsenalDone == lm:GetFullName() then return end
+  local added = 0
+  for _,grp in ipairs(ARSENAL) do
+    local arr = lm[grp[1]]; local have = {}
+    for i = 1, #arr do pcall(function() have[arr[i]:GetFName():ToString()] = true end) end
+    for _,name in ipairs(grp[3]) do
+      local path = WR..name.."."..name.."_C"
+      local cls = StaticFindObject(path)
+      if not valid(cls) then pcall(function() LoadAsset(path) end) cls = StaticFindObject(path) end
+      if valid(cls) then local cdo = cls:GetCDO()
+        if valid(cdo) and not have[cdo:GetFName():ToString()] then
+          pcall(function() if (cdo.CategoryFlags or 0) == 0 then cdo.CategoryFlags = grp[2] end end)
+          pcall(function() cdo.bShowInLoadout = true end)
+          arr[#arr + 1] = cdo
+          local li = lm.LoadoutItems; li[#li + 1] = cdo
+          pcall(function() lm.ItemLookupMap:Add(FName(cdo.LookupTableIdx:ToString()), cdo) end)
+          added = added + 1
+        end
+      end
+    end
+  end
+  -- Police gear: the loadout screen ignores bShowInLoadout, so the category lists are rebuilt without it
+  -- (Empty + re-add). LoadoutItems / ItemLookupMap keep them, so old saved loadouts still resolve.
+  local hidden = 0
+  for _,listName in ipairs({"PrimaryWeapons","SecondaryWeapons","LongTacticalItems","TacticalItems"}) do pcall(function()
+    local arr = lm[listName]; local keep = {}
+    for i = 1, #arr do local o = arr[i]; local n = o:GetFName():ToString(); local police = false
+      for _,pn in ipairs(POLICE_ONLY) do if n:find(pn, 1, true) then police = true end end
+      if police then hidden = hidden + 1 else keep[#keep+1] = o end end
+    if #keep < #arr then arr:Empty() for i,o in ipairs(keep) do arr[i] = o end end
+  end) end
+  S.arsenalDone = lm:GetFullName()
+  log(("suspect arsenal: %d weapons added to the loadout, %d police items hidden"):format(added, hidden))
+end
 
 local function win(reason)
   S.done = true; S.phase = "won"
@@ -903,6 +984,8 @@ LoopAsync(500, function() ExecuteInGameThread(function()
   if isHost() then pcall(hostReadCmds) pcall(dressHelpers) if inMission() then pcall(shieldTrigger) end end
   if cfg.NoReporting ~= false then pcall(hideObjectives) end
   pcall(shieldVisuals)
+  S.uiTick = (S.uiTick or 0) + 1; if S.uiTick % 4 == 0 then pcall(uiText) end
+  if not inMission() then local ok, e = pcall(arsenal) if not ok then log("arsenal error: "..tostring(e)) end end
   if M.open and S.tick2 then pcall(menuRefresh) end
   if S.tick2 then ok,e=pcall(dressPlayers) if not ok then log("dressP error: "..tostring(e)) end end
   S.tick2 = not S.tick2
@@ -917,7 +1000,7 @@ RegisterKeyBind(Key.UP_ARROW, function() if M.open then ExecuteInGameThread(func
 RegisterKeyBind(Key.DOWN_ARROW, function() if M.open then ExecuteInGameThread(function() M.sel = M.sel % #ROWS + 1 pcall(menuRefresh) end) end end)
 RegisterKeyBind(Key.LEFT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, -1) end) end end)
 RegisterKeyBind(Key.RIGHT_ARROW, function() if M.open then ExecuteInGameThread(function() pcall(menuChange, 1) end) end end)
-log("v0.9 loaded")
+log("v0.10 loaded")
 RegisterKeyBind(Key.F9, function() ExecuteInGameThread(function() cycle("body", 1) end) end)
 RegisterKeyBind(Key.F9, {ModifierKey.SHIFT}, function() ExecuteInGameThread(function() cycle("body", -1) end) end)
 RegisterKeyBind(Key.F10, function() ExecuteInGameThread(function() cycle("head", 1) end) end)
